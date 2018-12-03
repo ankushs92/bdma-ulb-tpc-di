@@ -3,7 +3,8 @@ package bdma.ulb.tpcdi.domain.enums
 enum Status {
 
     ACTIVE("active"),
-    CLOSED("closed");
+    CLOSED("closed"),
+    INACTIVE("inactive")
 
     final String code
 

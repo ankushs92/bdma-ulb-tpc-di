@@ -2,7 +2,7 @@ package bdma.ulb.tpcdi.util
 
 class Strings {
 
-
+    static final String NULL = "NULL"
     /**
      * Validate if a String has text in it. Whitespaces are not considered valid text
      * @param text The String that has to be validated

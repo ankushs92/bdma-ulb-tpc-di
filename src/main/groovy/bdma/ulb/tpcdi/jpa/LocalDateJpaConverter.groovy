@@ -10,7 +10,9 @@ class LocalDateJpaConverter implements AttributeConverter<LocalDate, Date> {
 
     @Override
     Date convertToDatabaseColumn(LocalDate attribute) {
-        Date.valueOf(attribute)
+        if(attribute) {
+            Date.valueOf(attribute)
+        }
     }
 
     @Override

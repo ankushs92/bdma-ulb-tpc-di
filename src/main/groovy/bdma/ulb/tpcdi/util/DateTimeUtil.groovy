@@ -21,4 +21,10 @@ class DateTimeUtil {
         LocalDate.parse(date, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
     }
 
+    static LocalDate parseFinWireDate(String date) {
+        Assert.notEmptyString(date, "Date cannot be null or empty")
+        LocalDate.parse(date, DateTimeFormatter.ofPattern("yyyyMMdd"))
+
+    }
+
 }
