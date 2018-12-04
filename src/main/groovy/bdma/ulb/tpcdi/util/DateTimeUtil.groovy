@@ -30,8 +30,16 @@ class DateTimeUtil {
     static LocalDateTime parseFinWireDateAndTime(String dateTime) {
         Assert.notEmptyString(dateTime, "dateTime cannot be null or empty")
         LocalDateTime.parse(dateTime, DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
-
     }
 
+    static LocalDateTime parseIso(String iso) {
+        Assert.notEmptyString(iso ,"iso cannot be null or empty")
+        LocalDateTime.parse(iso, DateTimeFormatter.ISO_DATE_TIME)
+    }
+
+    public static void main(String[] args) {
+        def s = "2007-07-07T04:28:56"
+        println LocalDateTime.parse(s, DateTimeFormatter.ISO_DATE_TIME)
+    }
 
 }
