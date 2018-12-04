@@ -1,6 +1,7 @@
 package bdma.ulb.tpcdi.util
 
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -24,7 +25,13 @@ class DateTimeUtil {
     static LocalDate parseFinWireDate(String date) {
         Assert.notEmptyString(date, "Date cannot be null or empty")
         LocalDate.parse(date, DateTimeFormatter.ofPattern("yyyyMMdd"))
+    }
+
+    static LocalDateTime parseFinWireDateAndTime(String dateTime) {
+        Assert.notEmptyString(dateTime, "dateTime cannot be null or empty")
+        LocalDateTime.parse(dateTime, DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
 
     }
+
 
 }

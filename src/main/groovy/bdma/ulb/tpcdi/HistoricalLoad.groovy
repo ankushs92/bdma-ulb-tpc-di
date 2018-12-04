@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component
 import javax.annotation.PostConstruct
 import java.time.LocalDate
 import java.time.Month
+import java.util.stream.Collectors
 
 import static bdma.ulb.tpcdi.domain.Constants.*
 import static bdma.ulb.tpcdi.util.Strings.NULL
@@ -34,6 +35,7 @@ class HistoricalLoad {
     private final TradeTypeRepository tradeTypeRepository
     private final DimBrokerRepository dimBrokerRepository
     private final DimCompanyRepository dimCompanyRepository
+    private final DimSecurityRepository dimSecurityRepository
 
     HistoricalLoad(
             @Value("\${file.location}") String directoryLocation,
@@ -45,7 +47,8 @@ class HistoricalLoad {
             TaxRateRepository taxRateRepository,
             TradeTypeRepository tradeTypeRepository,
             DimBrokerRepository dimBrokerRepository,
-            DimCompanyRepository dimCompanyRepository
+            DimCompanyRepository dimCompanyRepository,
+            DimSecurityRepository dimSecurityRepository
     )
     {
         this.directoryLocation = directoryLocation
@@ -58,6 +61,7 @@ class HistoricalLoad {
         this.tradeTypeRepository = tradeTypeRepository
         this.dimBrokerRepository = dimBrokerRepository
         this.dimCompanyRepository = dimCompanyRepository
+        this.dimSecurityRepository = dimSecurityRepository
     }
 
     @PostConstruct
@@ -119,6 +123,11 @@ class HistoricalLoad {
         List<DimCompany> dimCompanies = parseDimCompanies(finWireRecords, industries, statusTypes, earliestDate)
         log.info "Loading data into DimCompany"
         dimCompanyRepository.saveAll(dimCompanies)
+
+        List<DimSecurity> dimSecurities = parseDimSecurity(finWireRecords, dimCompanies, statusTypes)
+        log.info "Loading data into DimSecurity"
+        dimSecurityRepository.saveAll(dimSecurities)
+
 
     }
 
@@ -221,7 +230,7 @@ class HistoricalLoad {
     }
 
     private static List<DimBroker> parseDimBrokers(File file, LocalDate earliestDate) {
-        def records = FileParser.parse(file.path, COMMA_DELIM)
+        List<String[]> records = FileParser.parse(file.path, COMMA_DELIM)
         records.findAll { record ->
                     def jobCode = record[5]
                     boolean filter
@@ -256,15 +265,10 @@ class HistoricalLoad {
             LocalDate earliestDate
     )
     {
-        records
-                .findAll { record ->
+        records.findAll { record ->
                     //Refer to section 2.2.2.8
                     def recType = record.substring(15, 18)
-                    boolean filter
-                    if(recType == "CMP") {
-                        filter = true
-                    }
-                    filter
+                    recType == "CMP"
                 }
                 .collect { record ->
                     def companyName = Strings.hasText(record.substring(18, 78)) ? record.substring(18, 78) : NULL
@@ -310,30 +314,67 @@ class HistoricalLoad {
     }
 
 
-    public static void main(String[] args) {
-        def record = "19670329-012716CMPKCkPotwrqSQFGNsyRmfAqMDPgLswKnMFgi                          0000000070ACTVFFA   1858041721049 Chadbourne Avenue                                                                                                                                         X1G 1S1     Tulsa                    ID                                          Johnson                                       JBdKZwdpwPJTEcQmiMkAkoaDBPcdflXkyNfENJMpPNPyOAFEqvFzpojXFvspIfrEo"
-        def pts = record.substring(0, 15)
-        def recType = record.substring(15, 18)
-        def companyName = record.substring(18, 78)
-        def cik = record.substring(78, 88)
-        def status = Status.from(record.substring(88, 92))
-        def industryId = record.substring(92, 94)
-        def spRating = record.substring(94, 98)
-        def foundingDate = DateTimeUtil.parseFinWireDate(record.substring(98, 106))
-        def addrLine1 = record.substring(106, 186)
-        def addrLine2 = record.substring(186, 266)
-        def postalCode = record.substring(266, 278)
-        def city = record.substring(278, 303)
-        def stateProv = record.substring(303, 323)
-        def country = record.substring(323, 347)
-        def ceo = record.substring(347, 393)
-        def desc = record.substring(393, record.size())
-
-        println industryId
+    private static List<DimSecurity> parseDimSecurity(
+            List<String> records,
+            List<DimCompany> dimCompanies,
+            List<StatusType> statusTypes
+    )
+    {
+        records.findAll { record ->
+                    def recType = record.substring(15,18)
+                    return recType == "SEC"
+                }
+                .collect{ record ->
+                    def pts = DateTimeUtil.parseFinWireDateAndTime(record.substring(0, 15)).toLocalDate()
+                    def symbol = record.substring(18, 33)
+                    def issueType = record.substring(33, 39)
+                    def status = Status.from(statusTypes.find { it.id == record.substring(39, 43)}.name)
+                    def name = record.substring(43, 113)
+                    def exchangeId = record.substring(113, 119)
+                    def sharesOutstanding = record.substring(119, 132) as Integer
+                    def firstDate = DateTimeUtil.parseFinWireDate(record.substring(132, 140))
+                    def firstTradeOnExchange = DateTimeUtil.parseFinWireDate(record.substring(140, 148))
+                    def dividend = record.substring(148, 160) as Double
+                    def coNameOrCik = record.substring(160, record.size())
+                    def isCurrent = true
+                    def security = "security" //TODO CHANGE LATER
+                    def effectiveDate = pts
+                    def endDate = LocalDate.of(9999, Month.DECEMBER, 31)
+                    def batchId = BatchId.HISTORICAL_LOAD
+                    def skCompanyId
+                    if(
+                     (pts == effectiveDate || pts.isAfter(effectiveDate))
+                        && (pts.isBefore(endDate))
+                    )
+                    {
+                        if(coNameOrCik.size() == 10) {
+                            skCompanyId = dimCompanies.find { company ->
+                                company.companyId == (coNameOrCik as Integer)
+                            }.id
+                        }
+                        else {
+                            skCompanyId = dimCompanies.find { company ->
+                                company.name == coNameOrCik
+                            }.id
+                        }
+                    }
+                    new DimSecurity(
+                        symbol : symbol,
+                        issue : issueType,
+                        status : status,
+                        name : name,
+                        exchangeId : exchangeId,
+                        security : security,
+                        skCompanyId : skCompanyId,
+                        sharesOutstanding : sharesOutstanding,
+                        firstDate : firstDate,
+                        firstTradeOnExchange : firstTradeOnExchange,
+                        dividend : dividend,
+                        isCurrent : isCurrent,
+                        effectiveDate : effectiveDate,
+                        endDate : endDate,
+                        batchId : batchId
+                    )
+             }
     }
-
-
-
-
-
 }

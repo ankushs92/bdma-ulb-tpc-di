@@ -22,4 +22,5 @@ class BatchIdJpaConverter implements AttributeConverter<BatchId, Integer> {
         }
     }
 
+
 }
