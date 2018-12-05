@@ -528,11 +528,37 @@ class HistoricalLoad {
             def effectiveDate = actionTimestamp.toLocalDate()
             def endDate = LocalDate.of(9999, Month.DECEMBER, 31)
 
-            def agencyId
+            //Following fields are in prospect csv file AND NOT IN DIM CUSTOMER CSV, BUT THESE FUCKERS HAVE TO BE ADDED TO DIM CUSTOMER TABLE
+            def agencyId, creditRating, marketingNameplate, netWorth
 
             def status
             if(actionType == "NEW") {
                 status = Status.ACTIVE
+                boolean isUpdateOrInactive = xmlRootNode.Action.any { updOrInactAction ->
+                    if( updOrInactAction.@ActionType == "UPDCUST" || updOrInactAction.@ActionType == "INACT"){
+                        return true
+                    }
+                }
+                String[] prospect = prospectRecords.find{ String[] prospectRecord ->
+                    // lastName, firstName, addressline1, addressline2, postalcode
+                    String prospectLastName = prospectRecords[1]
+                    String prospectFirstName = prospectRecords[2]
+                    String prospectAddressline1 = prospectRecords[5]
+                    String prospectAddressline2 = prospectRecords[6]
+                    String prospectPostalcode = prospectRecords[7]
+                    prospectLastName.equalsIgnoreCase(lastName)  && prospectFirstName.equalsIgnoreCase(firstName) && prospectAddressline1.equalsIgnoreCase(addressLine1)  && prospectAddressline2.equalsIgnoreCase(addressLine2) && prospectPostalcode.equalsIgnoreCase(postalCode)
+                }
+
+                if(!isUpdateOrInactive && prospect) {
+                    agencyId = prospect[0]
+                    creditRating = prospect[17]
+                    netWorth = prospect[21]
+                    marketingNameplate = buildMarketingNameplate(prospect)
+                }
+
+            }
+            else (actionType == "UPDCUST") {
+
             }
 
             dimCompanies << new DimCustomer(
@@ -544,119 +570,28 @@ class HistoricalLoad {
                     gender : gender,
             )
 
-//            @Column(name = "CustomerID", nullable = false, columnDefinition = "INT(11) UNSIGNED")
-//            Integer customerId
-//
-//            @Column(name = "TaxID", nullable = false, columnDefinition = "VARCHAR(20) DEFAULT ''")
-//            String taxId
-//
-//            @Column(name = "Status", nullable = false, columnDefinition = "VARCHAR(10) DEFAULT ''")
-//            Status status
-//
-//            @Column(name = "FirstName", nullable = false, columnDefinition = "VARCHAR(30) DEFAULT ''")
-//            String firstName
-//
-//            @Column(name = "MiddleInitial", nullable = false, columnDefinition = "VARCHAR(1) DEFAULT ''")
-//            String middleInitial
-//
-//            @Column(name = "Gender", nullable = false, columnDefinition = "VARCHAR(1) DEFAULT ''")
-//            Gender gender
-//
-//            @Column(name = "Tier", nullable = false, columnDefinition = "TINYINT(1) UNSIGNED")
-//            Integer tier
-//
-//            @Column(name = "DOB", nullable = false, columnDefinition = "DATE")
-//            LocalDate dob
-//
-//            @Column(name = "AddressLine1", nullable = false, columnDefinition = "VARCHAR(80) DEFAULT ''")
-//            String addressLine1
-//
-//
-//            @Column(name = "AddressLine2", columnDefinition = "VARCHAR(80) DEFAULT ''")
-//            String addressLine2
-//
-//            @Column(name = "PostalCode", nullable = false, columnDefinition = "VARCHAR(12) DEFAULT ''")
-//            String postalCode
-//
-//            @Column(name = "City", nullable = false, columnDefinition = "VARCHAR(25) DEFAULT ''")
-//            String city
-//
-//            @Column(name = "StateProv", nullable = false, columnDefinition = "VARCHAR(20) DEFAULT ''")
-//            String stateProv
-//
-//            @Column(name = "Phone1", nullable = false, columnDefinition = "VARCHAR(30) DEFAULT ''")
-//            String phone1
-//
-//            @Column(name = "Phone2", nullable = false, columnDefinition = "VARCHAR(30) DEFAULT ''")
-//            String phone2
-//
-//            @Column(name = "Phone3", nullable = false, columnDefinition = "VARCHAR(30) DEFAULT ''")
-//            String phone3
-//
-//            @Column(name = "Email1", nullable = false, columnDefinition = "VARCHAR(50) DEFAULT ''")
-//            String email1
-//
-//            @Column(name = "Email2", nullable = false, columnDefinition = "VARCHAR(50) DEFAULT ''")
-//            String email2
-//
-//            @Column(name = "NationalTaxRateDesc", nullable = false, columnDefinition = "VARCHAR(50) DEFAULT ''")
-//            String nationalTaxRateDesc
-//
-//            @Column(name = "NationalTaxRate", nullable = false, columnDefinition = "DECIMAL(6,5) UNSIGNED")
-//            Double nationalTaxRate
-//
-//            @Column(name = "LocalTaxRateDesc", nullable = false, columnDefinition = "VARCHAR(50) DEFAULT ''")
-//            String localTaxRateDesc
-//
-//            @Column(name = "LocalTaxRate", nullable = false, columnDefinition = "DECIMAL(6,5) UNSIGNED")
-//            Double localTaxRate
-//
-//
-//            @Column(name = "AgencyID", columnDefinition = "VARCHAR(30) DEFAULT ''")
-//            String agencyId
-//
-//            @Column(name = "CreditRating", columnDefinition = "INT(5) UNSIGNED")
-//            Integer creditRating
-//
-//            @Column(name = "NetWorth", columnDefinition = "INT(10)")
-//            Integer netWorth
-//
-//            @Column(name = "MarketingNameplate", columnDefinition = "VARCHAR(100) DEFAULT ''")
-//            String marketingNameplate
-//
-//            @Column(name = "IsCurrent", columnDefinition = "TINYINT(1) UNSIGNED")
-//            boolean isCurrent
-//
-//            @Column(name = "BatchId", columnDefinition = "INT(5) UNSIGNED")
-//            BatchId batchId
-//
-//            @Column(name = "EffectiveDate", nullable = false, columnDefinition = "DATE")
-//            LocalDate effectiveDate
-//
-//            @Column(name = "EndDate", nullable = false, columnDefinition = "DATE")
-//            LocalDate endDate
 
         }
         dimCompanies
     }
 
-    public static void main(String[] args) {
-        def file = new File("/Users/ankushsharma/Downloads/tpc-di-tools/pdgf/output/Batch1/CustomerMgmt.xml")
-
-        def xml = new XmlSlurper()
-        def node = xml.parseText(file.text)
-
-        def actions = node.name()
-
-        for(action in node.Action) {
-            def customer = action.Customer
-
-            def dob = customer.@C_ID
-            println dob
-
-        }
-
-    }
+//    public static void main(String[] args) {
+//        def file = new File("/Users/ankushsharma/Downloads/tpc-di-tools/pdgf/output/Batch1/CustomerMgmt.xml")
+//
+//        def xml = new XmlSlurper()
+//        def node = xml.parseText(file.text)
+//
+//        def actions = node.name()
+//
+//        for(action in node.Action) {
+//            def customer = action.Customer
+//
+//            def dob = customer.@C_ID
+//            println dob
+//
+//        }
+//
+//    }
 
     private static List<String[]> getProspectFileRecords(File file) {
         FileParser.parse(file.path, COMMA_DELIM)
@@ -672,7 +607,7 @@ class HistoricalLoad {
         else if(!hasText(ctryCode) && hasText(areaCode) && hasText(localNum)) {
             result = "($areaCode)$localNum"
         }
-        else if(!hasText(areaCode) && hasText(localNum)) {
+        else if(!hasText(ctryCode) && !hasText(areaCode) && hasText(localNum)) {
             result = "$localNum"
         }
         else {
@@ -687,5 +622,44 @@ class HistoricalLoad {
         }
         result
     }
+
+
+    private static String buildMarketingNameplate(String[] prospect) {
+        def tags = []
+        def income = prospect[12] as Integer
+        def numOfCars = prospect[13] as Integer
+        def netWorth = prospect[21] as Integer
+        def numOfChildren = prospect[14] as Integer
+        def numCreditCards = prospect[20] as Integer
+        def age = prospect[16] as Integer
+        def creditRating = prospect[17] as Integer
+
+        if(netWorth > 1000000 || income > 200000) {
+            tags << "HighValue"
+        }
+
+        if(numOfChildren > 3 || numCreditCards > 5) {
+            tags << "Expenses"
+        }
+
+        if(age > 45) {
+            tags << "Boomer"
+        }
+
+        if(income < 50000 || creditRating < 600 || netWorth < 100000) {
+            tags << "Spender"
+        }
+
+        if(numOfCars > 3 || numCreditCards > 7) {
+            tags << "Spender"
+        }
+
+        if(age < 25 && netWorth > 1000000) {
+            tags << "Inherited"
+        }
+        tags.join("+")
+    }
+
+
 
 }
