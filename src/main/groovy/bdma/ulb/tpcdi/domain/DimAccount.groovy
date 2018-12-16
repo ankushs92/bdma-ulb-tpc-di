@@ -44,11 +44,4 @@ class DimAccount {
 
     @Column(name = "EndDate", nullable = false)
     LocalDate endDate
-
-
-
-
-
-
-
 }

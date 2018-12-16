@@ -4,6 +4,8 @@ import bdma.ulb.tpcdi.domain.*
 import bdma.ulb.tpcdi.domain.enums.BatchId
 import bdma.ulb.tpcdi.domain.enums.Gender
 import bdma.ulb.tpcdi.domain.enums.Status
+import bdma.ulb.tpcdi.domain.keys.CustomerXmlKeys
+import bdma.ulb.tpcdi.domain.keys.ProspectRecordKeys
 import bdma.ulb.tpcdi.repository.*
 import bdma.ulb.tpcdi.util.DateTimeUtil
 import bdma.ulb.tpcdi.util.FileParser
@@ -18,8 +20,10 @@ import java.time.Month
 
 import static bdma.ulb.tpcdi.domain.Constants.*
 import static bdma.ulb.tpcdi.domain.Constants.COMMA_DELIM
+import static bdma.ulb.tpcdi.domain.Constants.CUSTOMER_XML
 import static bdma.ulb.tpcdi.util.Strings.NULL
 import static bdma.ulb.tpcdi.util.Strings.hasText
+import static bdma.ulb.tpcdi.util.Strings.toLowerCaseIfAnyMixedCase
 
 @Component
 @Slf4j
@@ -82,44 +86,37 @@ class HistoricalLoad {
         }
 
         def dimDateFile = getFile(files, DATE_TXT)
-        log.info "Finished parsing $DATE_TXT"
         log.info "Loading data into DimDate"
         List<DimDate> dimDates = parseDimDate(dimDateFile)
         dimDateRepository.saveAll(dimDates)
 
         def dimTimeFile = getFile(files, TIME_TXT)
-        log.info "Finished parsing $TIME_TXT"
         log.info "Loading data into DimTime"
         List<DimTime> dimTimes = parseDimTime(dimTimeFile)
         dimTimeRepository.saveAll(dimTimes)
 
         def industryFile = getFile(files, INDUSTRY_TXT)
-        log.info "Finished parsing $INDUSTRY_TXT"
         log.info "Loading data into Industry"
         List<Industry> industries = parseIndustry(industryFile)
         industryRepository.saveAll(industries)
 
         def statusTypeFile = getFile(files, STATUS_TYPE_TXT)
-        log.info "Finished parsing $STATUS_TYPE_TXT"
         log.info "Loading data into StatusType"
         List<StatusType> statusTypes = parseStatusType(statusTypeFile)
         statusTypeRepository.saveAll(statusTypes)
 
         def taxRateFile = getFile(files, TAX_RATE_TXT)
-        log.info "Finished parsing $TAX_RATE_TXT"
         log.info "Loading data into TaxRate"
         List<TaxRate> taxRates = parseTaxRates(taxRateFile)
         taxRateRepository.saveAll(taxRates)
 
         def tradeTypeFile = getFile(files, TRADE_TYPE_TXT)
-        log.info "Finished parsing $TRADE_TYPE_TXT"
         log.info "Loading data into TradeType"
         List<TradeType> tradeTypes = parseTradeTypes(tradeTypeFile)
         tradeTypeRepository.saveAll(tradeTypes)
 
         def dimBrokerFile = getFile(files, DIM_BROKER_CSV)
         def earliestDate = dimDates.sort { it.date }.find().date
-        log.info "Finished parsing $DIM_BROKER_CSV"
         log.info "Loading data into DimBroker"
         List<DimBroker> dimBrokers = parseDimBrokers(dimBrokerFile, earliestDate)
         dimBrokerRepository.saveAll(dimBrokers)
@@ -143,6 +140,13 @@ class HistoricalLoad {
         //We need prospect file records before DimCustomer, but the data has to be saved after data has been saved for DimCustomer
         def prospectFile = getFile(files, PROSPECT_CSV)
         List<String[]> prospectFileRecords = getProspectFileRecords(prospectFile)
+
+        def customerXmlFile = getFile(files, CUSTOMER_XML)
+        List<DimCustomer> dimCustomers = parseDimCustomer(customerXmlFile, taxRates, prospectFileRecords)
+        log.info "Loading data into DimCustomer"
+        dimCustomers = dimCustomerRepository.saveAll(dimCustomers)
+
+
     }
 
 
@@ -469,59 +473,89 @@ class HistoricalLoad {
         //Parse customer management xml
         def xmlRootNode = new XmlSlurper().parseText(file.text)
         def dimCompanies = []
+        Map<ProspectRecordKeys, String[]> prospectCache = prospectRecords.collectEntries { String[] prospectRecord ->
+            String prospectLastName = prospectRecord[1]
+            String prospectFirstName = prospectRecord[2]
+            String prospectAddressline1 = prospectRecord[5]
+            String prospectAddressline2 = prospectRecord[6]
+            String prospectPostalcode = prospectRecord[7]
+            [new ProspectRecordKeys(
+                    firstName : toLowerCaseIfAnyMixedCase(prospectFirstName),
+                    lastName : toLowerCaseIfAnyMixedCase(prospectLastName),
+                    addressline1 : toLowerCaseIfAnyMixedCase(prospectAddressline1),
+                    addressline2 : toLowerCaseIfAnyMixedCase(prospectAddressline2),
+                    postalCode : toLowerCaseIfAnyMixedCase(prospectPostalcode)
+            ), prospectRecord]
+        }
+
+        int count = 0
+
+        Map<CustomerXmlKeys, Object> xmlUpdateOrInactCache = [:]
         xmlRootNode.Action.each { action ->
-            def actionTimestamp = DateTimeUtil.parseIso(action.@ActionTS)
-            def actionType = action.@ActionType
+            def actionType = action.@ActionType as String
             def customer = action.Customer
-            def customerId = customer.@C_ID
-            def taxId = customer.@C_TAX_ID
-            def gender = Gender.from(customer.@C_GNDR)
-            def tier = customer.@C_TIER
-            def dob = DateTimeUtil.parse(customer.@C_DOB)
+            def customerId = customer.@C_ID?.toInteger()
+            if(actionType == "UPDCUST" || actionType == "INACT") {
+                xmlUpdateOrInactCache.put(new CustomerXmlKeys(actionType : actionType, customerId : customerId), action)
+            }
+        }
+
+        xmlRootNode.Action.each { action ->
+            def actionTimestamp = DateTimeUtil.parseIso(action.@ActionTS as String)
+            def actionType = action.@ActionType as String
+            def customer = action.Customer
+            def customerId = customer.@C_ID?.toInteger()
+            def taxId = customer.@C_TAX_ID as String
+            def gender = Gender.from(customer.@C_GNDR as String)
+            def tier = customer.@C_TIER?.toInteger()
+            def dobStr = customer.@C_DOB as String
+            def dob = hasText(dobStr) ? DateTimeUtil.parse(dobStr) : null
 
             def name = customer.Name
-            def firstName = name.C_F_NAME
-            def lastName = name.C_L_NAME
-            def middleName = name.C_M_NAME
+            def firstName = name.C_F_NAME as String
+            def lastName = name.C_L_NAME as String
+            def middleName = name.C_M_NAME as String
 
             def address = customer.Address
-            def addressLine1 = address.C_ADLINE1
-            def addressLine2 = address.C_ADLINE2
-            def postalCode = address.C_ZIPCODE
-            def city = address.C_CITY
-            def stateProv = address.C_STATE_PROV
-            def country = address.C_CTRY
+            def addressLine1 = address.C_ADLINE1 as String
+            def addressLine2 = address.C_ADLINE2 as String
+            def postalCode = address.C_ZIPCODE as String
+            def city = address.C_CITY as String
+            def stateProv = address.C_STATE_PROV as String
+            def country = address.C_CTRY as String
 
             def contactInfo = customer.ContactInfo
-            def email1 = contactInfo.C_PRIM_EMAIL
-            def email2 = contactInfo.C_ALT_EMAIL
-            def phone1Local = customer.C_PHONE_1.C_LOCAL
-            def phone1CtryCode = customer.C_PHONE_1.C_CTRY_CODE
-            def phone1AreaCode = customer.C_PHONE_1.C_AREA_CODE
-            def phone1Ext = customer.C_PHONE_1.C_EXT
-            def phone1 = buildPhoneNum(phone1CtryCode, phone1AreaCode, phone1AreaCode, phone1Ext)
+            def email1 = contactInfo.C_PRIM_EMAIL as String
+            def email2 = contactInfo.C_ALT_EMAIL as String
+            def phone1Local = customer.C_PHONE_1.C_LOCAL as String
+            def phone1CtryCode = customer.C_PHONE_1.C_CTRY_CODE as String
+            def phone1AreaCode = customer.C_PHONE_1.C_AREA_CODE as String
+            def phone1Ext = customer.C_PHONE_1.C_EXT as String
+            def phone1 = buildPhoneNum(phone1CtryCode, phone1AreaCode, phone1Local, phone1Ext)
 
-            def phone2CtryCode = customer.C_PHONE_2.C_CTRY_CODE
-            def phone2AreaCode = customer.C_PHONE_2.C_AREA_CODE
-            def phone2Ext = customer.C_PHONE_2.C_EXT
-            def phone2 = buildPhoneNum(phone2CtryCode, phone2AreaCode, phone2AreaCode, phone2Ext)
+            def phone2Local = customer.C_PHONE_2.C_LOCAL as String
+            def phone2CtryCode = customer.C_PHONE_2.C_CTRY_CODE as String
+            def phone2AreaCode = customer.C_PHONE_2.C_AREA_CODE as String
+            def phone2Ext = customer.C_PHONE_2.C_EXT as String
+            def phone2 = buildPhoneNum(phone2CtryCode, phone2AreaCode, phone2Local, phone2Ext)
 
-            def phone3CtryCode = customer.C_PHONE_3.C_CTRY_CODE
-            def phone3AreaCode = customer.C_PHONE_3.C_AREA_CODE
-            def phone3Ext = customer.C_PHONE_3.C_EXT
-            def phone3 = buildPhoneNum(phone3CtryCode, phone3AreaCode, phone3AreaCode, phone3Ext)
+            def phone3Local = customer.C_PHONE_3.C_LOCAL as String
+            def phone3CtryCode = customer.C_PHONE_3.C_CTRY_CODE as String
+            def phone3AreaCode = customer.C_PHONE_3.C_AREA_CODE as String
+            def phone3Ext = customer.C_PHONE_3.C_EXT as String
+            def phone3 = buildPhoneNum(phone3CtryCode, phone3AreaCode, phone3Local, phone3Ext)
 
             def taxInfo = customer.TaxInfo
-            def localTaxId = taxInfo.C_LCL_TX_ID
-            def nationalTaxId = taxInfo.C_NAT_TX_ID
+            def localTaxId = taxInfo.C_LCL_TX_ID as String
+            def nationalTaxId = taxInfo.C_NAT_TX_ID as String
 
             def localTaxRate = taxRates.find { it.id == localTaxId}
             def nationalTaxRate = taxRates.find { it.id == nationalTaxId}
 
-            def localTaxRateValue = localTaxRate.rate
-            def nationalTaxRateValue = nationalTaxRate.rate
-            def localTaxRateDesc = localTaxRate.name
-            def nationalTaxRateDesc = nationalTaxRate.name
+            def localTaxRateValue = localTaxRate?.rate
+            def nationalTaxRateValue = nationalTaxRate?.rate
+            def localTaxRateDesc = localTaxRate?.name
+            def nationalTaxRateDesc = nationalTaxRate?.name
 
             def isCurrent = true
             def batchId = BatchId.HISTORICAL_LOAD
@@ -531,34 +565,54 @@ class HistoricalLoad {
             //Following fields are in prospect csv file AND NOT IN DIM CUSTOMER CSV, BUT THESE FUCKERS HAVE TO BE ADDED TO DIM CUSTOMER TABLE
             def agencyId, creditRating, marketingNameplate, netWorth
 
-            def status
-            if(actionType == "NEW") {
-                status = Status.ACTIVE
-                boolean isUpdateOrInactive = xmlRootNode.Action.any { updOrInactAction ->
-                    if( updOrInactAction.@ActionType == "UPDCUST" || updOrInactAction.@ActionType == "INACT"){
-                        return true
-                    }
-                }
-                String[] prospect = prospectRecords.find{ String[] prospectRecord ->
-                    // lastName, firstName, addressline1, addressline2, postalcode
-                    String prospectLastName = prospectRecords[1]
-                    String prospectFirstName = prospectRecords[2]
-                    String prospectAddressline1 = prospectRecords[5]
-                    String prospectAddressline2 = prospectRecords[6]
-                    String prospectPostalcode = prospectRecords[7]
-                    prospectLastName.equalsIgnoreCase(lastName)  && prospectFirstName.equalsIgnoreCase(firstName) && prospectAddressline1.equalsIgnoreCase(addressLine1)  && prospectAddressline2.equalsIgnoreCase(addressLine2) && prospectPostalcode.equalsIgnoreCase(postalCode)
-                }
+            def updateActionKey = new CustomerXmlKeys(actionType : "UPDCUST", customerId : customerId )
+            def inactActionKey = new CustomerXmlKeys(actionType : "INACT", customerId : customerId )
 
-                if(!isUpdateOrInactive && prospect) {
-                    agencyId = prospect[0]
-                    creditRating = prospect[17]
-                    netWorth = prospect[21]
-                    marketingNameplate = buildMarketingNameplate(prospect)
-                }
+            def customerUpdateAction = xmlUpdateOrInactCache.get(updateActionKey)
+            def customerInactAction = xmlUpdateOrInactCache.get(inactActionKey)
 
+            boolean customerHasUpdateAction, customerHasInactAction
+
+            if(customerUpdateAction) customerHasUpdateAction = true
+            if(customerInactAction) customerHasInactAction = true
+//            boolean isUpdateOrInactive = xmlRootNode.Action.any { updOrInactAction ->
+//                if(
+//                (updOrInactAction.@ActionType == "UPDCUST" || updOrInactAction.@ActionType == "INACT" )
+//               && (updOrInactAction.customer.@C_ID?.toInteger() == customerId)
+//                )
+//                {
+//                    return true
+//                }
+//            }
+
+            def prospect = prospectCache.get(new ProspectRecordKeys(
+                    firstName : toLowerCaseIfAnyMixedCase(firstName),
+                    lastName : toLowerCaseIfAnyMixedCase(lastName),
+                    addressline1 : toLowerCaseIfAnyMixedCase(addressLine1),
+                    addressline2 : toLowerCaseIfAnyMixedCase(addressLine2),
+                    postalCode : toLowerCaseIfAnyMixedCase(postalCode)
+                )
+            )
+
+             if(!customerHasInactAction && !customerHasUpdateAction && prospect) {
+                agencyId = prospect[0]
+                creditRating = hasText(prospect[17]) ? prospect[17]  as Integer : null
+                netWorth = hasText(prospect[21]) ?  prospect[21] as Double : null
+                marketingNameplate = buildMarketingNameplate(prospect)
             }
-            else (actionType == "UPDCUST") {
 
+//            if(!isUpdateOrInactive && prospect) {
+//                agencyId = prospect[0]
+//                creditRating = hasText(prospect[17]) ? prospect[17]  as Integer : null
+//                netWorth = hasText(prospect[21]) ?  prospect[21] as Double : null
+//                marketingNameplate = buildMarketingNameplate(prospect)
+//            }
+            def status
+            if(actionType == "NEW" || actionType == "UPDCUST" || actionType == "ADDACCT" || actionType == "UPDACCT") {
+                status = Status.ACTIVE
+            }
+            else if (actionType == "INACT" || actionType == "CLOSEACCT") {
+                status = Status.INACTIVE
             }
 
             dimCompanies << new DimCustomer(
@@ -568,10 +622,34 @@ class HistoricalLoad {
                     firstName : firstName,
                     middleInitial : middleName,
                     gender : gender,
+                    tier : tier,
+                    dob : dob,
+                    addressLine1 : addressLine1,
+                    addressLine2 : addressLine2,
+                    postalCode : postalCode,
+                    city : city,
+                    stateProv : stateProv,
+                    country : country,
+                    phone1 : phone1,
+                    phone2 : phone2,
+                    phone3 : phone3,
+                    email1 : email1,
+                    email2 : email2,
+                    nationalTaxRateDesc : nationalTaxRateDesc,
+                    nationalTaxRate : nationalTaxRateValue,
+                    localTaxRateDesc : localTaxRateDesc,
+                    localTaxRate : localTaxRateValue,
+                    agencyId : agencyId,
+                    creditRating : creditRating,
+                    netWorth : netWorth,
+                    marketingNameplate : marketingNameplate,
+                    batchId : batchId,
+                    isCurrent : isCurrent,
+                    effectiveDate : effectiveDate,
+                    endDate : endDate
             )
-
-
         }
+
         dimCompanies
     }
 
@@ -626,40 +704,43 @@ class HistoricalLoad {
 
     private static String buildMarketingNameplate(String[] prospect) {
         def tags = []
-        def income = prospect[12] as Integer
-        def numOfCars = prospect[13] as Integer
-        def netWorth = prospect[21] as Integer
-        def numOfChildren = prospect[14] as Integer
-        def numCreditCards = prospect[20] as Integer
-        def age = prospect[16] as Integer
-        def creditRating = prospect[17] as Integer
+        def incomeStr = prospect[12]
+        def numOfCarsStr = prospect[13]
+        def netWorthStr = prospect[21]
+        def numOfChildrenStr = prospect[14]
+        def numCreditCardsStr = prospect[20]
+        def ageStr = prospect[16]
+        def creditRatingStr = prospect[17]
 
-        if(netWorth > 1000000 || income > 200000) {
+
+        if((hasText(netWorthStr) && (netWorthStr as Integer) > 1000000)|| (hasText(incomeStr) && (incomeStr as Integer) > 200000)) {
             tags << "HighValue"
         }
 
-        if(numOfChildren > 3 || numCreditCards > 5) {
+        if((hasText(numOfChildrenStr) && (numOfChildrenStr as Integer) > 3) || (hasText(numCreditCardsStr) && (numCreditCardsStr as Integer) > 5)) {
             tags << "Expenses"
         }
 
-        if(age > 45) {
+        if(hasText(ageStr) && (ageStr as Integer) > 45) {
             tags << "Boomer"
         }
 
-        if(income < 50000 || creditRating < 600 || netWorth < 100000) {
+        if((hasText(incomeStr) && ( incomeStr as Integer) < 50000)
+                || (hasText(creditRatingStr) && (creditRatingStr as Integer) < 600)
+                || (hasText(netWorthStr) && (netWorthStr as Integer) < 100000))
+        {
             tags << "Spender"
         }
 
-        if(numOfCars > 3 || numCreditCards > 7) {
+        if((hasText(numOfCarsStr) && (numOfCarsStr as Integer) > 3) || (hasText(numCreditCardsStr) && (numCreditCardsStr as Integer) > 7)) {
             tags << "Spender"
         }
 
-        if(age < 25 && netWorth > 1000000) {
+        if(hasText(ageStr) && (ageStr as Integer) < 25 && hasText(netWorthStr) && (netWorthStr as Integer) > 1000000) {
             tags << "Inherited"
         }
         tags.join("+")
     }
-
 
 
 }

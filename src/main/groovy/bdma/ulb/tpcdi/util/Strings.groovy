@@ -1,5 +1,7 @@
 package bdma.ulb.tpcdi.util
 
+import org.apache.commons.lang3.StringUtils
+
 class Strings {
 
     static final String NULL = "NULL"
@@ -20,6 +22,13 @@ class Strings {
         return false
     }
 
+    static String toLowerCaseIfAnyMixedCase(String str) {
+        if(hasText(str)) {
+            if(!StringUtils.isAllLowerCase(str)) {
+                return str.toLowerCase()
+            }
+        }
+    }
 
 }
 

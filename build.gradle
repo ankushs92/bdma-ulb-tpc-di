@@ -30,6 +30,7 @@ dependencies {
     implementation('org.springframework.boot:spring-boot-starter-data-jpa')
     implementation('org.codehaus.groovy:groovy')
     implementation('org.codehaus.groovy:groovy-xml')
+    compile group: 'org.apache.commons', name: 'commons-lang3', version: '3.8.1'
 
     runtimeOnly('org.springframework.boot:spring-boot-devtools')
     runtimeOnly('mysql:mysql-connector-java')

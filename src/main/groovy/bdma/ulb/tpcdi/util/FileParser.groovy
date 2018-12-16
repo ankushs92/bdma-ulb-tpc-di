@@ -13,8 +13,4 @@ class FileParser {
         records
     }
 
-    public static void main(String[] args) {
-        def s = "3552,571,McNally,Minnie,E,314,TIjsqqkuCYQPiDTOKxRIFg,,"
-        println s.split(",", 222)
-    }
 }
