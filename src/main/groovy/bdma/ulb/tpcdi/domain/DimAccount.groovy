@@ -1,5 +1,6 @@
 package bdma.ulb.tpcdi.domain
 
+import bdma.ulb.tpcdi.domain.enums.BatchId
 import bdma.ulb.tpcdi.domain.enums.Status
 import bdma.ulb.tpcdi.domain.enums.TaxStatus
 
@@ -27,7 +28,7 @@ class DimAccount {
     @Column(name = "Status", nullable = false, columnDefinition = "VARCHAR(10) DEFAULT ''")
     Status status
 
-    @Column(name = "AccountDesc", nullable = false, columnDefinition = "VARCHAR(50) DEFAULT ''")
+    @Column(name = "AccountDesc", columnDefinition = "VARCHAR(50) DEFAULT ''")
     String accountDesc
 
     @Column(name = "TaxStatus", nullable = false, columnDefinition = " INT(1) UNSIGNED")
@@ -37,7 +38,7 @@ class DimAccount {
     boolean isCurrent
 
     @Column(name = "BatchId", nullable = false, columnDefinition = " INT(5) UNSIGNED")
-    Integer batchId
+    BatchId batchId
 
     @Column(name = "EffectiveDate", nullable = false)
     LocalDate effectiveDate

@@ -11,7 +11,8 @@ enum TaxStatus {
         this.code = code
     }
 
-    static TaxStatus from(int code) {
+    static TaxStatus from(Integer code) {
+        if(code == null) return ZERO
         for(val in values()) {
             if(val.code == code) {
                 return val

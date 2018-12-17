@@ -1,6 +1,5 @@
 package bdma.ulb.tpcdi.domain.enums
 
-import bdma.ulb.tpcdi.util.Assert
 import bdma.ulb.tpcdi.util.Strings
 
 enum Gender {

@@ -4,13 +4,14 @@ import bdma.ulb.tpcdi.domain.*
 import bdma.ulb.tpcdi.domain.enums.BatchId
 import bdma.ulb.tpcdi.domain.enums.Gender
 import bdma.ulb.tpcdi.domain.enums.Status
+import bdma.ulb.tpcdi.domain.enums.TaxStatus
 import bdma.ulb.tpcdi.domain.keys.CustomerXmlKeys
 import bdma.ulb.tpcdi.domain.keys.ProspectRecordKeys
 import bdma.ulb.tpcdi.repository.*
 import bdma.ulb.tpcdi.util.DateTimeUtil
 import bdma.ulb.tpcdi.util.FileParser
-import bdma.ulb.tpcdi.util.Strings
 import groovy.util.logging.Slf4j
+import groovy.util.slurpersupport.GPathResult
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 
@@ -19,11 +20,7 @@ import java.time.LocalDate
 import java.time.Month
 
 import static bdma.ulb.tpcdi.domain.Constants.*
-import static bdma.ulb.tpcdi.domain.Constants.COMMA_DELIM
-import static bdma.ulb.tpcdi.domain.Constants.CUSTOMER_XML
-import static bdma.ulb.tpcdi.util.Strings.NULL
-import static bdma.ulb.tpcdi.util.Strings.hasText
-import static bdma.ulb.tpcdi.util.Strings.toLowerCaseIfAnyMixedCase
+import static bdma.ulb.tpcdi.util.Strings.*
 
 @Component
 @Slf4j
@@ -44,6 +41,7 @@ class HistoricalLoad {
     private final DimSecurityRepository dimSecurityRepository
     private final FinancialRepository financialRepository
     private final DimCustomerRepository dimCustomerRepository
+    private final DimTradeRepository dimTradeRepository
 
     HistoricalLoad(
             @Value("\${file.location}") String directoryLocation,
@@ -58,7 +56,8 @@ class HistoricalLoad {
             DimCompanyRepository dimCompanyRepository,
             DimSecurityRepository dimSecurityRepository,
             FinancialRepository financialRepository,
-            DimCustomerRepository dimCustomerRepository
+            DimCustomerRepository dimCustomerRepository,
+            DimTradeRepository dimTradeRepository
     )
     {
         this.directoryLocation = directoryLocation
@@ -74,6 +73,7 @@ class HistoricalLoad {
         this.dimSecurityRepository = dimSecurityRepository
         this.financialRepository = financialRepository
         this.dimCustomerRepository = dimCustomerRepository
+        this.dimTradeRepository = dimTradeRepository
     }
 
     @PostConstruct
@@ -88,12 +88,13 @@ class HistoricalLoad {
         def dimDateFile = getFile(files, DATE_TXT)
         log.info "Loading data into DimDate"
         List<DimDate> dimDates = parseDimDate(dimDateFile)
-        dimDateRepository.saveAll(dimDates)
+        def earliestDate = dimDates.sort { it.date }.find().date
+        dimDates = dimDateRepository.saveAll(dimDates)
 
         def dimTimeFile = getFile(files, TIME_TXT)
         log.info "Loading data into DimTime"
         List<DimTime> dimTimes = parseDimTime(dimTimeFile)
-        dimTimeRepository.saveAll(dimTimes)
+        dimTimes = dimTimeRepository.saveAll(dimTimes)
 
         def industryFile = getFile(files, INDUSTRY_TXT)
         log.info "Loading data into Industry"
@@ -116,10 +117,10 @@ class HistoricalLoad {
         tradeTypeRepository.saveAll(tradeTypes)
 
         def dimBrokerFile = getFile(files, DIM_BROKER_CSV)
-        def earliestDate = dimDates.sort { it.date }.find().date
         log.info "Loading data into DimBroker"
         List<DimBroker> dimBrokers = parseDimBrokers(dimBrokerFile, earliestDate)
-        dimBrokerRepository.saveAll(dimBrokers)
+        dimBrokers = dimBrokerRepository.saveAll(dimBrokers)
+        println "Broker with id 3545 " + dimBrokers.find { it.brokerId == 3545}
 
         log.info "Parsing all FinWire txt files"
         def finWireFiles = getTxtFilesThatStartWithName(files, FINWIRE_RECORDS_CSV_INITIAL_NAME)
@@ -127,27 +128,41 @@ class HistoricalLoad {
         def finWireRecords = finWireFiles.collect { file -> file.readLines() }.flatten() as List<String>
         List<DimCompany> dimCompanies = parseDimCompanies(finWireRecords, industries, statusTypes, earliestDate)
         log.info "Loading data into DimCompany"
-        dimCompanyRepository.saveAll(dimCompanies)
+        dimCompanies = dimCompanyRepository.saveAll(dimCompanies)
 
         List<DimSecurity> dimSecurities = parseDimSecurity(finWireRecords, dimCompanies, statusTypes)
         log.info "Loading data into DimSecurity"
-        dimSecurityRepository.saveAll(dimSecurities)
+        dimSecurities = dimSecurityRepository.saveAll(dimSecurities)
 
         List<Financial> financials = parseFinancials(finWireRecords, dimCompanies)
         log.info "Loading data into Financial"
-        financialRepository.saveAll(financials)
+        financials = financialRepository.saveAll(financials)
 
         //We need prospect file records before DimCustomer, but the data has to be saved after data has been saved for DimCustomer
         def prospectFile = getFile(files, PROSPECT_CSV)
         List<String[]> prospectFileRecords = getProspectFileRecords(prospectFile)
 
         def customerXmlFile = getFile(files, CUSTOMER_XML)
-        List<DimCustomer> dimCustomers = parseDimCustomer(customerXmlFile, taxRates, prospectFileRecords)
+        def customerXmlData = parseCustomerXml(customerXmlFile)
+        List<DimCustomer> dimCustomers = parseDimCustomer(customerXmlData, taxRates, prospectFileRecords)
         log.info "Loading data into DimCustomer"
         dimCustomers = dimCustomerRepository.saveAll(dimCustomers)
 
+        def dimAccounts = buildDimAccount(customerXmlData, dimCustomers, dimBrokers)
+        log.info "Loading data into DimAccount"
+        dimAccounts = dimAccountRepository.saveAll(dimAccounts)
+
+        updateAccountIfCustomerInactive(dimCustomers, dimAccounts)
+
+
+
+        def tradeFile = getFile(files, TRADE_TXT)
+        def tradeRecords = parseTrade(tradeFile, dimDates, dimTimes, statusTypes, tradeTypes, dimSecurities, dimAccounts)
+        log.info "Loading data into DimTrades"
+        tradeRecords = dimTradeRepository.saveAll(tradeRecords)
 
     }
+
 
 
     private static File getFile(List<File> files, String fileName) {
@@ -463,15 +478,17 @@ class HistoricalLoad {
         }
     }
 
+    private static GPathResult parseCustomerXml(File file) {
+         new XmlSlurper().parseText(file.text)
+    }
 
     private static List<DimCustomer> parseDimCustomer(
-            File file,
+            GPathResult xmlData,
             List<TaxRate> taxRates,
             List<String[]> prospectRecords
     )
     {
         //Parse customer management xml
-        def xmlRootNode = new XmlSlurper().parseText(file.text)
         def dimCompanies = []
         Map<ProspectRecordKeys, String[]> prospectCache = prospectRecords.collectEntries { String[] prospectRecord ->
             String prospectLastName = prospectRecord[1]
@@ -488,10 +505,8 @@ class HistoricalLoad {
             ), prospectRecord]
         }
 
-        int count = 0
-
         Map<CustomerXmlKeys, Object> xmlUpdateOrInactCache = [:]
-        xmlRootNode.Action.each { action ->
+        xmlData.Action.each { action ->
             def actionType = action.@ActionType as String
             def customer = action.Customer
             def customerId = customer.@C_ID?.toInteger()
@@ -500,7 +515,7 @@ class HistoricalLoad {
             }
         }
 
-        xmlRootNode.Action.each { action ->
+        xmlData.Action.each { action ->
             def actionTimestamp = DateTimeUtil.parseIso(action.@ActionTS as String)
             def actionType = action.@ActionType as String
             def customer = action.Customer
@@ -571,19 +586,11 @@ class HistoricalLoad {
             def customerUpdateAction = xmlUpdateOrInactCache.get(updateActionKey)
             def customerInactAction = xmlUpdateOrInactCache.get(inactActionKey)
 
-            boolean customerHasUpdateAction, customerHasInactAction
+            boolean customerHasUpdateAction = false
+            boolean customerHasInactAction = false
 
             if(customerUpdateAction) customerHasUpdateAction = true
             if(customerInactAction) customerHasInactAction = true
-//            boolean isUpdateOrInactive = xmlRootNode.Action.any { updOrInactAction ->
-//                if(
-//                (updOrInactAction.@ActionType == "UPDCUST" || updOrInactAction.@ActionType == "INACT" )
-//               && (updOrInactAction.customer.@C_ID?.toInteger() == customerId)
-//                )
-//                {
-//                    return true
-//                }
-//            }
 
             def prospect = prospectCache.get(new ProspectRecordKeys(
                     firstName : toLowerCaseIfAnyMixedCase(firstName),
@@ -601,12 +608,6 @@ class HistoricalLoad {
                 marketingNameplate = buildMarketingNameplate(prospect)
             }
 
-//            if(!isUpdateOrInactive && prospect) {
-//                agencyId = prospect[0]
-//                creditRating = hasText(prospect[17]) ? prospect[17]  as Integer : null
-//                netWorth = hasText(prospect[21]) ?  prospect[21] as Double : null
-//                marketingNameplate = buildMarketingNameplate(prospect)
-//            }
             def status
             if(actionType == "NEW" || actionType == "UPDCUST" || actionType == "ADDACCT" || actionType == "UPDACCT") {
                 status = Status.ACTIVE
@@ -649,27 +650,99 @@ class HistoricalLoad {
                     endDate : endDate
             )
         }
-
         dimCompanies
     }
 
-//    public static void main(String[] args) {
-//        def file = new File("/Users/ankushsharma/Downloads/tpc-di-tools/pdgf/output/Batch1/CustomerMgmt.xml")
-//
-//        def xml = new XmlSlurper()
-//        def node = xml.parseText(file.text)
-//
-//        def actions = node.name()
-//
-//        for(action in node.Action) {
-//            def customer = action.Customer
-//
-//            def dob = customer.@C_ID
-//            println dob
-//
-//        }
-//
-//    }
+
+    private static List<DimAccount> buildDimAccount(
+            GPathResult xmlData,
+            List<DimCustomer> customers,
+            List<DimBroker> brokers
+    )
+    {
+        List<DimAccount> dimAccounts = []
+
+
+        Map<Integer, Object> newOrAddAccActionCache = [:]
+        xmlData.Action.each { action ->
+            def actionType = action.@ActionType as String
+            def customer = action.Customer
+            def account = customer.Account
+            def accountId = account.@CA_ID?.toInteger()
+            if(actionType == "NEW" || actionType == "ADDACCT") {
+                newOrAddAccActionCache.put(accountId, action.Customer)
+            }
+        }
+        xmlData.Action.each { action ->
+            def actionType = action.@ActionType as String
+            def customerXml = action.Customer
+            def customerId = customerXml.@C_ID?.toInteger()
+            def actionTimestamp = DateTimeUtil.parseIso(action.@ActionTS as String)
+
+            def account = customerXml.Account
+            def accountId = account.@CA_ID?.toInteger()
+            def taxStatusInt = account.@CA_TAX_ST?.toInteger()
+            def brokerId = account.CA_B_ID?.toInteger()
+            def accountDesc = account.CA_NAME
+
+            def isCurrent = true
+            def batchId = BatchId.HISTORICAL_LOAD
+            def effectiveDate = actionTimestamp.toLocalDate()
+            def endDate = LocalDate.of(9999, Month.DECEMBER, 31)
+
+            println "ACTION TYPE IS " + actionType + ", broker id is" + brokerId + " action date " + effectiveDate
+            def taxStatus = TaxStatus.from(taxStatusInt)
+
+            def status = Status.ACTIVE
+            def skBrokerId, skCustomerId
+            def actionDate = actionTimestamp.toLocalDate()
+            if(actionType == "NEW" || actionType == "ADDACCT" ) {
+                status = Status.ACTIVE
+                skBrokerId = brokers.find { it ->
+                    def brokerEffectiveDate = it.effectiveDate
+                    def brokerEndDate = it.endDate
+                    it.brokerId == brokerId  && (
+                               (actionDate == brokerEffectiveDate || actionDate.isAfter(brokerEffectiveDate))
+                            && (actionDate.isBefore(brokerEndDate) || actionDate == brokerEndDate )
+                    )
+                }.id
+                skCustomerId = customers.find { it ->
+                    def customerEffectiveDate = it.effectiveDate
+                    def customerEndDate = it.endDate
+                    customerId == it.customerId && (
+                            (actionDate == customerEffectiveDate || actionDate.isAfter(customerEffectiveDate))
+                                    && actionDate.isBefore(customerEndDate)
+                    )
+                }.id
+            }
+
+
+            if(actionType == "UPDACCT" ) {
+                def newOrAddAct = newOrAddAccActionCache.get(accountId)
+                skBrokerId = dimAccounts.find { it.ac}
+
+            }
+
+            if(actionType == "CLOSEACCT" || actionType == "INACT" ) {
+                status = Status.INACTIVE
+            }
+
+            def dimAccount = new DimAccount(
+                    accountId : accountId,
+                    skBrokerId : skBrokerId,
+                    skCustomerId : skCustomerId,
+                    status : status,
+                    accountDesc : accountDesc,
+                    taxStatus : taxStatus,
+                    isCurrent : isCurrent,
+                    batchId : batchId,
+                    effectiveDate : effectiveDate,
+                    endDate : endDate
+            )
+            dimAccounts << dimAccount
+        }
+        dimAccounts
+    }
 
     private static List<String[]> getProspectFileRecords(File file) {
         FileParser.parse(file.path, COMMA_DELIM)
@@ -712,7 +785,6 @@ class HistoricalLoad {
         def ageStr = prospect[16]
         def creditRatingStr = prospect[17]
 
-
         if((hasText(netWorthStr) && (netWorthStr as Integer) > 1000000)|| (hasText(incomeStr) && (incomeStr as Integer) > 200000)) {
             tags << "HighValue"
         }
@@ -740,6 +812,122 @@ class HistoricalLoad {
             tags << "Inherited"
         }
         tags.join("+")
+    }
+
+    private static List<DimTrade> parseTrade(
+            File file,
+            List<DimDate> dimDates,
+            List<DimTime> dimTimes,
+            List<StatusType> statusTypes,
+            List<TradeType> tradeTypes,
+            List<DimSecurity> dimSecurities,
+            List<DimAccount> dimAccounts
+    )
+    {
+        def records = FileParser.parse(file.path, PIPE_DELIM)
+        return records.collect { String[] tradeRecord ->
+            def tid = tradeRecord[0] as Integer
+            def tradeTimestamp = DateTimeUtil.parseIso(tradeRecord[1])
+            def statusTypeId = tradeRecord[2]
+            def tradeTypeId = tradeRecord[3]
+            boolean isCash = tradeRecord[4] == "1"
+            def securitySymbol = tradeRecord[5]
+            def quantity = tradeRecord[6] as Integer
+            def bidPrice = tradeRecord[7] as Integer
+            def customerAccId = tradeRecord[8] as Integer
+            def execName = tradeRecord[9]
+            def tradePrice = tradeRecord[10] as Double
+            def tradeCharge = tradeRecord[11] as Double
+            def commission = tradeRecord[12] as Double
+            def tax = tradeRecord[13] as Double
+            def tradeDate = tradeTimestamp.toLocalDate()
+            def tradeTime = tradeTimestamp.toLocalTime()
+
+            def skCreateDateId, skCreateTimeId, skCloseDateId, skCloseTimeId
+            if(
+            (statusTypeId == "SBMT" && (tradeTypeId == "TMB" || tradeTypeId == "TMS"))
+                || statusTypeId == "PNDG"
+            )
+            {
+                skCreateDateId = dimDates.find { it.date == tradeDate}.id
+                skCreateTimeId = dimTimes.find { it.hourId == tradeTime.hour && it.minuteId == tradeTime.minute && it.secondId == tradeTime.second}.id
+            }
+
+            else if(statusTypeId == "CMPT" || statusTypeId == "CNCL") {
+                skCloseDateId = dimDates.find { it.date == tradeDate}.id
+                skCloseTimeId = dimTimes.find { it.hourId == tradeTime.hour && it.minuteId == tradeTime.minute && it.secondId == tradeTime.second }.id
+            }
+            def status = statusTypes.find { it.id == statusTypeId}
+            def type = tradeTypes.find { it.id == tradeTypeId }
+
+            def security = dimSecurities.find { security ->
+                def secEffectiveDate = security.effectiveDate
+                def secEndDate = security.endDate
+                security.symbol == securitySymbol && (
+                        (tradeDate == secEffectiveDate || tradeDate.isAfter(secEffectiveDate))
+                                && tradeDate.isBefore(secEndDate)
+                )
+            }
+            def skSecurityId = security.id
+            def skCompanyId = security.skCompanyId
+
+            def batchId = BatchId.HISTORICAL_LOAD
+
+            def account = dimAccounts.find { account ->
+                def accEffectiveDate = account.effectiveDate
+                def accEndDate = account.endDate
+                account.accountId == customerAccId  && (
+                        (tradeDate == accEffectiveDate || tradeDate.isAfter(accEffectiveDate))
+                                && tradeDate.isBefore(accEndDate)
+                )
+            }
+
+            def skBrokerId = account.skBrokerId
+            def skCustomerId = account.skCustomerId
+            def skAccountId = account.id
+
+            new DimTrade(
+                    id : tid,
+                    skBrokerId : skBrokerId,
+                    skCreateDateId : skCreateDateId,
+                    skCreateTimeId : skCreateTimeId,
+                    skCloseDateId : skCloseDateId,
+                    skCloseTimeId : skCloseTimeId,
+                    status : status,
+                    type : type.name,
+                    isCash : isCash,
+                    skSecurityId : skSecurityId,
+                    skCompanyId : skCompanyId,
+                    quantity : quantity,
+                    bidPrice : bidPrice,
+                    skCustomerId : skCustomerId,
+                    skAccountId : skAccountId,
+                    executedBy : execName,
+                    tradePrice : tradePrice,
+                    fee : tradeCharge,
+                    commission : commission,
+                    tax : tax,
+                    batchId : batchId
+            )
+
+        }
+    }
+
+    private void updateAccountIfCustomerInactive(
+            List<DimCustomer> dimCustomers,
+            List<DimAccount> dimAccounts
+    )
+    {
+        dimCustomers.each { dimCustomer ->
+            def compStatus =  dimCustomer.status
+            if(compStatus == Status.INACTIVE) {
+                def companyAccounts = dimAccounts.findAll { it.skCustomerId == dimCustomer.id }
+                companyAccounts.each { companyAcc ->
+                    companyAcc.status = Status.INACTIVE
+                    dimAccountRepository.save(companyAcc)
+                }
+            }
+        }
     }
 
 
