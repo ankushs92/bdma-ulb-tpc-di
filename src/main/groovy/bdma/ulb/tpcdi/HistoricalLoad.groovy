@@ -21,7 +21,8 @@ import java.time.LocalDate
 import java.time.Month
 
 import static bdma.ulb.tpcdi.domain.Constants.*
-
+import static bdma.ulb.tpcdi.domain.Constants.PIPE_DELIM
+import static bdma.ulb.tpcdi.domain.Constants.TRADE_HISTORY_TXT
 import static bdma.ulb.tpcdi.util.Strings.*
 
 import static java.util.Objects.nonNull
@@ -173,7 +174,7 @@ class HistoricalLoad {
         def prospectFile = getFile(files, PROSPECT_CSV)
         List<String[]> prospectFileRecords = getProspectFileRecords(prospectFile)
 
-        List<DimCustomer> dimCustomers = dimCustomerRepository.findAll()
+//        List<DimCustomer> dimCustomers = dimCustomerRepository.findAll()
 //        def customerXmlFile = getFile(files, CUSTOMER_XML)
 //        def customerXmlData = parseCustomerXml(customerXmlFile)
 //        List<DimCustomer> dimCustomers = parseDimCustomer(customerXmlData, taxRates, prospectFileRecords)
@@ -191,22 +192,26 @@ class HistoricalLoad {
 //        dimAccounts = dimAccountRepository.saveAll(dimAccounts)
 //
 //
-//         Map<String, List<DimSecurity>> dimSecurityCache = dimSecurities.groupBy { dimSecurity -> dimSecurity.symbol }
-//        Map<Integer, List<DimAccount>> dimAccountsCache = dimAccounts.groupBy { dimAccount -> dimAccount.accountId }
+         Map<String, List<DimSecurity>> dimSecurityCache = dimSecurities.groupBy { dimSecurity -> dimSecurity.symbol }
+        println dimSecurityCache.get("AAAAAAAAAAAADMO")
+        println "hsss"
+        Map<Integer, List<DimAccount>> dimAccountsCache = dimAccounts.groupBy { dimAccount -> dimAccount.accountId }
           Map<LocalDate, Integer> dimDatesCache = dimDates.collectEntries { dimDate ->
               [(dimDate.date) : dimDate.id]
           }
 ////
-//        Map<DimTimeKeys, Integer> dimTimeCache = dimTimes.collectEntries { dimTime ->
-//            def key = new DimTimeKeys(hourId : dimTime.hourId, minuteId : dimTime.minuteId, secondId : dimTime.secondId)
-//            [ (key) : dimTime.id]
-//        }
+        Map<DimTimeKeys, Integer> dimTimeCache = dimTimes.collectEntries { dimTime ->
+            def key = new DimTimeKeys(hourId : dimTime.hourId, minuteId : dimTime.minuteId, secondId : dimTime.secondId)
+            [ (key) : dimTime.id]
+        }
 ////
 ////        List<DimTrade> dimTrades = dimTradeRepository.findAll()
-//        def tradeFile = getFile(files, TRADE_TXT)
-//        List<DimTrade> dimTrades = parseTrade(tradeFile, dimDatesCache, dimTimeCache, statusTypes, tradeTypes, dimSecurityCache, dimAccountsCache)
-//        log.info "Loading data into DimTrades"
-//        dimTradeRepository.saveAll(dimTrades)
+         def tradeFile = getFile(files, TRADE_TXT)
+          def tradeHistoryFile = getFile(files, TRADE_HISTORY_TXT)
+         def tradeHistoryRecords = getTradeHistoryRecords(tradeHistoryFile)
+        List<DimTrade> dimTrades = parseTrade(tradeFile, dimDatesCache, dimTimeCache, statusTypes, tradeTypes, dimSecurityCache, dimAccountsCache, tradeHistoryRecords)
+        log.info "Loading data into DimTrades"
+        dimTradeRepository.saveAll(dimTrades)
 ////
 //        def factCashBalanceFile = getFile(files, FACT_CASH_BALANCE_TXT)
 //        def factCashBalance = parseFactCashBalance(factCashBalanceFile, dimAccountsCache, dimDatesCache)
@@ -441,7 +446,7 @@ class HistoricalLoad {
                     def recType = record.substring(15,18)
                     return recType == "SEC"
                 }
-                .collect{ record ->
+                .each{ record ->
                     def pts = DateTimeUtil.parseFinWireDateAndTime(record.substring(0, 15)).toLocalDate()
                     def symbol = record.substring(18, 33)
                     def issueType = record.substring(33, 39)
@@ -453,65 +458,79 @@ class HistoricalLoad {
                     def firstTradeOnExchange = DateTimeUtil.parseFinWireDate(record.substring(140, 148))
                     def dividend = record.substring(148, 160) as Double
                     def coNameOrCik = record.substring(160, record.size())
-                    def isCurrent = true
                     def security = "security"
                     def secEffectiveDate = pts
                     def endDate = LocalDate.of(9999, Month.DECEMBER, 31)
                     def batchId = BatchId.HISTORICAL_LOAD
-                    def skCompanyId
+                    def skCompanyIds
                     if(coNameOrCik.size() == 10) {
-                        println coNameOrCik
-                        println secEffectiveDate
-                        skCompanyId = dimCompanies.find { company ->
-                            def effectiveCompDate = company.effectiveDate
-                            def endCompDate = company.endDate
-                            company.companyId == (coNameOrCik as Integer) && (
-//                                    join DimCompany company on a.SK_CompanyID = c.SK_CompanyID and company.EffectiveDate <= sec.EffectiveDate and sec.EndDate <= company.EndDate)
-                                    (secEffectiveDate.isAfter(effectiveCompDate) || effectiveCompDate == secEffectiveDate)  && (secEffectiveDate.isBefore(endCompDate))
-                            )
+                        skCompanyIds = dimCompanies.findAll { company ->
+                            company.companyId == (coNameOrCik as Integer)
                         }.id
+
                     }
                     else {
-                        skCompanyId = dimCompanies.find { company ->
-                            def effectiveCompDate = company.effectiveDate
-                            def endCompDate = company.endDate
-                            company.name == coNameOrCik && (
-                                    (secEffectiveDate.isAfter(effectiveCompDate) || effectiveCompDate == secEffectiveDate)  && (secEffectiveDate.isBefore(endCompDate))
-                            )
+                        skCompanyIds = dimCompanies.findAll { company ->
+                            company.name == coNameOrCik
                         }.id
                     }
+                    skCompanyIds.each { skCompId ->
+                        def comp = dimCompanies.find { it.id == skCompId }
+                        def compEffectivDate = comp.effectiveDate
+                        def compEndDate = comp.endDate
+                        def isCompCurrent = comp.isCurrent
+                        def oldSecurityItem = dimSecurities.find { it.isCurrent &&  it.symbol == symbol }
+                        if(oldSecurityItem) {
+                            oldSecurityItem.isCurrent = false
+                            oldSecurityItem.endDate = secEffectiveDate
+                        }
 
-                    def oldSecurityItem = dimSecurities.find { it.isCurrent &&  it.symbol == symbol }
-                    if(oldSecurityItem) {
-                        oldSecurityItem.isCurrent = false
-                        oldSecurityItem.endDate = secEffectiveDate
+                        if(!isCompCurrent) {
+                            def dimSecurity = new DimSecurity(
+                                    symbol : symbol,
+                                    issue : issueType,
+                                    status : status,
+                                    name : name,
+                                    exchangeId : exchangeId,
+                                    security : security,
+                                    skCompanyId : skCompId,
+                                    sharesOutstanding : sharesOutstanding,
+                                    firstDate : firstDate,
+                                    firstTradeOnExchange : firstTradeOnExchange,
+                                    dividend : dividend,
+                                    isCurrent : isCompCurrent,
+                                    effectiveDate : compEffectivDate,
+                                    endDate : compEndDate,
+                                    batchId : batchId
+                            )
+                            dimSecurities << dimSecurity
+                        }
+                        else {
+                            if((secEffectiveDate.isAfter(compEffectivDate) || compEffectivDate == secEffectiveDate)  && (secEffectiveDate.isBefore(compEndDate))) {
+                                def dimSecurity = new DimSecurity(
+                                        symbol : symbol,
+                                        issue : issueType,
+                                        status : status,
+                                        name : name,
+                                        exchangeId : exchangeId,
+                                        security : security,
+                                        skCompanyId : skCompId,
+                                        sharesOutstanding : sharesOutstanding,
+                                        firstDate : firstDate,
+                                        firstTradeOnExchange : firstTradeOnExchange,
+                                        dividend : dividend,
+                                        isCurrent : true,
+                                        effectiveDate : secEffectiveDate,
+                                        endDate : endDate,
+                                        batchId : batchId
+                                )
+                                dimSecurities << dimSecurity
+                            }
+                        }
+
                     }
-
-                    def company = dimCompanies.find { it.id == skCompanyId }
-                    def companyId = company.companyId
-                    skCompanyId = dimCompanies.find { it.companyId == companyId && it.isCurrent }.id
-
-
-                    def dimSecurity = new DimSecurity(
-                            symbol : symbol,
-                            issue : issueType,
-                            status : status,
-                            name : name,
-                            exchangeId : exchangeId,
-                            security : security,
-                            skCompanyId : skCompanyId,
-                            sharesOutstanding : sharesOutstanding,
-                            firstDate : firstDate,
-                            firstTradeOnExchange : firstTradeOnExchange,
-                            dividend : dividend,
-                            isCurrent : isCurrent,
-                            effectiveDate : secEffectiveDate,
-                            endDate : endDate,
-                            batchId : batchId
-                        )
-                    dimSecurities << dimSecurity
-                    dimSecurity
              }
+        dimSecurities
     }
 
     private static List<Financial> parseFinancials(
@@ -1005,12 +1024,18 @@ class HistoricalLoad {
             List<StatusType> statusTypes,
             List<TradeType> tradeTypes,
             Map<String, List<DimSecurity>> dimSecurityCache,
-            Map<Integer, List<DimAccount>> dimAccountsCache
+            Map<Integer, List<DimAccount>> dimAccountsCache,
+            List<String[]> tradeHistoryRecords
     )
     {
         def records = FileParser.parse(file.path, PIPE_DELIM)
-        records.collect { String[] tradeRecord ->
-            def tid = tradeRecord[0] as Integer
+        Map<String, String[]> tradeHistoryCache = tradeHistoryRecords.collectEntries { histRecord ->
+            [(histRecord[0]) : histRecord]
+        }
+        List<DimTrade> dimTrades = []
+        records.each { String[] tradeRecord ->
+            def tidString = tradeRecord[0]
+            def tid = tidString as Integer
             def tradeTimestamp = DateTimeUtil.parseIso(tradeRecord[1])
             def statusTypeId = tradeRecord[2]
             def tradeTypeId = tradeRecord[3]
@@ -1026,6 +1051,10 @@ class HistoricalLoad {
             def tax = hasText(tradeRecord[13]) ? tradeRecord[13] as Double : null
             def tradeDate = tradeTimestamp.toLocalDate()
             def tradeTime = tradeTimestamp.toLocalTime()
+
+            tradeHistoryCache.get(tidString).each { record ->
+                statusTypeId = tradeRecord[2]
+            }
 
             def skCreateDateId, skCreateTimeId, skCloseDateId, skCloseTimeId
             if(
@@ -1048,16 +1077,18 @@ class HistoricalLoad {
             def status = statusTypes.find { it.id == statusTypeId }
             def type = tradeTypes.find { it.id == tradeTypeId }
 
+            println securitySymbol
+            println tradeDate
             def security = dimSecurityCache.get(securitySymbol).find { security ->
                 def secEffectiveDate = security.effectiveDate
                 def secEndDate = security.endDate
-                (tradeDate == secEffectiveDate || tradeDate.isAfter(secEffectiveDate))  && tradeDate.isBefore(secEndDate)
+                (tradeDate == secEffectiveDate || tradeDate.isAfter(secEffectiveDate))  && (tradeDate.isBefore(secEndDate) || tradeDate == secEndDate)
             }
 
             def account = dimAccountsCache.get(customerAccId).find { account ->
                 def accEffectiveDate = account.effectiveDate
                 def accEndDate = account.endDate
-                (tradeDate == accEffectiveDate || tradeDate.isAfter(accEffectiveDate))  && tradeDate.isBefore(accEndDate)
+                (tradeDate == accEffectiveDate || tradeDate.isAfter(accEffectiveDate))  && (tradeDate.isBefore(accEndDate) || tradeDate == accEndDate)
             }
             def skSecurityId = security.id
             def skCompanyId = security.skCompanyId
@@ -1068,7 +1099,7 @@ class HistoricalLoad {
             def skCustomerId = account.skCustomerId
             def skAccountId = account.id
 
-            new DimTrade(
+            dimTrades << new DimTrade(
                     tradeId : tid,
                     skBrokerId : skBrokerId,
                     skCreateDateId : skCreateDateId,
@@ -1091,8 +1122,8 @@ class HistoricalLoad {
                     tax : tax,
                     batchId : batchId
             )
-
         }
+        dimTrades
     }
 
 
@@ -1104,11 +1135,7 @@ class HistoricalLoad {
     {
         def records = FileParser.parse(file.path, PIPE_DELIM)
         def factCashBalances = []
-//        Map<Integer, String[]> factBalanceCache = records.groupBy { record ->
-//                                                            def accountId = record[0] as Integer
-//                                                            accountId
-//                                                        }
-//
+
         records.each { record ->
             def accountId = record[0] as Integer
             def timestamp = DateTimeUtil.parseIso(record[1])
@@ -1124,8 +1151,6 @@ class HistoricalLoad {
             def skAccountId = account.id
             def skDateId = dimDatesCache.get(factDate)
             def batchId = BatchId.HISTORICAL_LOAD
-
-//            def allCashTxForAcc = factBalanceCache.get(accountId)
 
             def cash = 0.0
             factCashBalances << new FactCashBalance(
@@ -1484,7 +1509,9 @@ class HistoricalLoad {
         tags.join("+")
     }
 
-
+    private static List<String[]> getTradeHistoryRecords(File file) {
+        FileParser.parse(file.path, PIPE_DELIM)
+    }
     private static DimAccount getLastAccount(List<DimAccount> dimAccounts, Integer accountId) {
         dimAccounts.grep().find { it.accountId == accountId && it.isCurrent  }
     }

@@ -16,6 +16,7 @@ class Constants {
     static final String TAX_RATE_TXT = "TaxRate.txt"
     static final String TRADE_TYPE_TXT = "TradeType.txt"
     static final String TRADE_TXT = "Trade.txt"
+    static final String TRADE_HISTORY_TXT = "TradeHistory.txt"
     static final String FACT_CASH_BALANCE_TXT = "CashTransaction.txt"
     static final String FACT_HOLDINGS_TXT = "HoldingHistory.txt"
     static final String FACT_WATCHES_TXT = "WatchHistory.txt"
@@ -25,7 +26,6 @@ class Constants {
     static final String BATCH_DATE_TXT = "BatchDate.txt"
 
 
-    static final String TRADE_HISTORY_TXT = "TradeHistory.txt"
 
     static final String CUSTOMER_XML = "CustomerMgmt.xml"
 

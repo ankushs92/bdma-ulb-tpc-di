@@ -2,6 +2,7 @@ package bdma.ulb.tpcdi.domain
 
 import bdma.ulb.tpcdi.domain.enums.BatchId
 import bdma.ulb.tpcdi.domain.enums.Status
+import groovy.transform.ToString
 import org.springframework.data.domain.Persistable
 
 import javax.persistence.*
@@ -9,6 +10,7 @@ import java.time.LocalDate
 
 @Entity
 @Table(name = "DimCompany")
+@ToString(includeNames = true)
 class DimCompany  implements Persistable<Integer> {
 
     @Id
