@@ -31,7 +31,7 @@ class DimSecurity {
     @Column(name = "Security", nullable = false, columnDefinition = "VARCHAR(70) DEFAULT ''")
     String security
 
-    @Column(name = "ExchageID", nullable = false, columnDefinition = "VARCHAR(6) DEFAULT ''")
+    @Column(name = "ExchangeID", nullable = false, columnDefinition = "VARCHAR(6) DEFAULT ''")
     String exchangeId
 
     @Column(name = "SK_CompanyID", nullable = false, columnDefinition = "INT(11) UNSIGNED")

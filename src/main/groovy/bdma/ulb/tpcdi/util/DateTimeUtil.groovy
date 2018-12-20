@@ -34,7 +34,13 @@ class DateTimeUtil {
 
     static LocalDateTime parseIso(String iso) {
         Assert.notEmptyString(iso ,"iso cannot be null or empty")
-        LocalDateTime.parse(iso, DateTimeFormatter.ISO_DATE_TIME)
+        try {
+            LocalDateTime.parse(iso, DateTimeFormatter.ISO_DATE_TIME)
+        }
+        catch(ex) {
+            LocalDateTime.parse(iso, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+
+        }
     }
 
     public static void main(String[] args) {

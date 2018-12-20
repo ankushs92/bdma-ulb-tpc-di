@@ -1,5 +1,7 @@
 package bdma.ulb.tpcdi.domain
 
+import org.springframework.data.annotation.Transient
+
 import javax.persistence.Column
 import javax.persistence.Entity
 import javax.persistence.Id
@@ -52,5 +54,8 @@ class Financial {
 
     @Column(name = "FI_Out_Dilut", nullable = false, columnDefinition = "INT(12)")
     Integer fiOutDilut
+
+    @javax.persistence.Transient
+    Integer companyId
 
 }

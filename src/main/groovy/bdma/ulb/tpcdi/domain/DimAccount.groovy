@@ -3,12 +3,14 @@ package bdma.ulb.tpcdi.domain
 import bdma.ulb.tpcdi.domain.enums.BatchId
 import bdma.ulb.tpcdi.domain.enums.Status
 import bdma.ulb.tpcdi.domain.enums.TaxStatus
+import groovy.transform.ToString
 
 import javax.persistence.*
 import java.time.LocalDate
 
 @Entity
 @Table(name = "DimAccount")
+@ToString(includeNames = true)
 class DimAccount {
 
     @Id
@@ -45,4 +47,11 @@ class DimAccount {
 
     @Column(name = "EndDate", nullable = false)
     LocalDate endDate
+
+    @org.springframework.data.annotation.Transient
+    String actionType
+
+    @org.springframework.data.annotation.Transient
+    String customerId
+
 }

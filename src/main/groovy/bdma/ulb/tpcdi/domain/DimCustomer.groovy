@@ -3,6 +3,7 @@ package bdma.ulb.tpcdi.domain
 import bdma.ulb.tpcdi.domain.enums.BatchId
 import bdma.ulb.tpcdi.domain.enums.Gender
 import bdma.ulb.tpcdi.domain.enums.Status
+import groovy.transform.ToString
 import org.springframework.data.domain.Persistable
 
 import javax.persistence.*
@@ -10,6 +11,7 @@ import java.time.LocalDate
 
 @Entity
 @Table(name = "DimCustomer")
+@ToString(includeNames = true)
 class DimCustomer implements Persistable<Integer> {
 
     @Id
@@ -28,6 +30,10 @@ class DimCustomer implements Persistable<Integer> {
 
     @Column(name = "FirstName", nullable = false, columnDefinition = "VARCHAR(30) DEFAULT ''")
     String firstName
+
+    @Column(name = "LastName", nullable = false, columnDefinition = "VARCHAR(30) DEFAULT ''")
+    String lastName
+
 
     @Column(name = "MiddleInitial", nullable = false, columnDefinition = "VARCHAR(1) DEFAULT ''")
     String middleInitial
@@ -111,6 +117,9 @@ class DimCustomer implements Persistable<Integer> {
 
     @Column(name = "EndDate", nullable = false, columnDefinition = "DATE")
     LocalDate endDate
+
+    @org.springframework.data.annotation.Transient
+    String actionType
 
     @Override
     boolean isNew() {

@@ -49,12 +49,11 @@ class DimCompany  implements Persistable<Integer> {
     @Column(name = "City", nullable = false, columnDefinition = "VARCHAR(25) DEFAULT ''")
     String city
 
-
     @Column(name = "StateProv", nullable = false, columnDefinition = "VARCHAR(20) DEFAULT ''")
     String stateProv
 
 
-    @Column(name = "Country", nullable = false, columnDefinition = "VARCHAR(24) DEFAULT ''")
+    @Column(name = "Country", columnDefinition = "VARCHAR(24) DEFAULT ''")
     String country
 
     @Column(name = "Description", nullable = false, columnDefinition = "VARCHAR(150) DEFAULT ''")
