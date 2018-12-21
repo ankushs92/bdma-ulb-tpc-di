@@ -1,7 +1,5 @@
 package bdma.ulb.tpcdi.domain
 
-import org.springframework.data.annotation.Transient
-
 import javax.persistence.Column
 import javax.persistence.Entity
 import javax.persistence.Id

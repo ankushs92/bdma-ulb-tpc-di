@@ -21,10 +21,7 @@ import java.time.LocalDate
 import java.time.Month
 
 import static bdma.ulb.tpcdi.domain.Constants.*
-import static bdma.ulb.tpcdi.domain.Constants.PIPE_DELIM
-import static bdma.ulb.tpcdi.domain.Constants.TRADE_HISTORY_TXT
 import static bdma.ulb.tpcdi.util.Strings.*
-
 import static java.util.Objects.nonNull
 
 @Component
@@ -107,138 +104,130 @@ class HistoricalLoad {
 
         def batchDateFile = getFile(files, BATCH_DATE_TXT)
         def batchDate = getBatchDate(batchDateFile)
-//
-        def dimDates = dimDateRepository.findAll()
-//        def dimDateFile = getFile(files, DATE_TXT)
-//        log.info "Loading data into DimDate"
-//        List<DimDate> dimDates = parseDimDate(dimDateFile)
-        def earliestDate = dimDates.sort { it.date }.find().date
-//        dimDates = dimDateRepository.saveAll(dimDates)
 
-        List<DimTime> dimTimes = dimTimeRepository.findAll()
-//        def dimTimeFile = getFile(files, TIME_TXT)
-//        log.info "Loading data into DimTime"
-//        List<DimTime> dimTimes = parseDimTime(dimTimeFile)
-//        dimTimes = dimTimeRepository.saveAll(dimTimes)
-//
-        List<Industry> industries = industryRepository.findAll()
-//        def industryFile = getFile(files, INDUSTRY_TXT)
-//        log.info "Loading data into Industry"
-//        List<Industry> industries = parseIndustry(industryFile)
-//        industryRepository.saveAll(industries)
-//
-        def statusTypes = statusTypeRepository.findAll()
-//        def statusTypeFile = getFile(files, STATUS_TYPE_TXT)
-//        log.info "Loading data into StatusType"
-//        List<StatusType> statusTypes = parseStatusType(statusTypeFile)
-//        statusTypeRepository.saveAll(statusTypes)
-//
-        List<TaxRate> taxRates = taxRateRepository.findAll()
-//        def taxRateFile = getFile(files, TAX_RATE_TXT)
-//        log.info "Loading data into TaxRate"
-//        List<TaxRate> taxRates = parseTaxRates(taxRateFile)
-//        taxRateRepository.saveAll(taxRates)
-//
-        def tradeTypes = tradeTypeRepository.findAll()
-//        def tradeTypeFile = getFile(files, TRADE_TYPE_TXT)
-//        log.info "Loading data into TradeType"
-//        List<TradeType> tradeTypes = parseTradeTypes(tradeTypeFile)
-//        tradeTypeRepository.saveAll(tradeTypes)
-//
-////        List<DimBroker> dimBrokers = dimBrokerRepository.findAll()
-//        def dimBrokerFile = getFile(files, DIM_BROKER_CSV)
-//        log.info "Loading data into DimBroker"
-//        List<DimBroker> dimBrokers = parseDimBrokers(dimBrokerFile, earliestDate)
-//        dimBrokers = dimBrokerRepository.saveAll(dimBrokers)
-//
-//        log.info "Parsing all FinWire txt files"
-        List<DimCompany> dimCompanies = dimCompanyRepository.findAll()
+        def dimDateFile = getFile(files, DATE_TXT)
+        log.info "Loading data into DimDate"
+        List<DimDate> dimDates = parseDimDate(dimDateFile)
+        def earliestDate = dimDates.sort { it.date }.find().date
+        dimDates = dimDateRepository.saveAll(dimDates)
+
+
+        def dimTimeFile = getFile(files, TIME_TXT)
+        log.info "Loading data into DimTime"
+        List<DimTime> dimTimes = parseDimTime(dimTimeFile)
+        dimTimes = dimTimeRepository.saveAll(dimTimes)
+
+        def industryFile = getFile(files, INDUSTRY_TXT)
+        log.info "Loading data into Industry"
+        List<Industry> industries = parseIndustry(industryFile)
+        industryRepository.saveAll(industries)
+
+
+        def statusTypeFile = getFile(files, STATUS_TYPE_TXT)
+        log.info "Loading data into StatusType"
+        List<StatusType> statusTypes = parseStatusType(statusTypeFile)
+        statusTypeRepository.saveAll(statusTypes)
+
+
+        def taxRateFile = getFile(files, TAX_RATE_TXT)
+        log.info "Loading data into TaxRate"
+        List<TaxRate> taxRates = parseTaxRates(taxRateFile)
+        taxRateRepository.saveAll(taxRates)
+
+
+        def tradeTypeFile = getFile(files, TRADE_TYPE_TXT)
+        log.info "Loading data into TradeType"
+        List<TradeType> tradeTypes = parseTradeTypes(tradeTypeFile)
+        tradeTypeRepository.saveAll(tradeTypes)
+
+
+        def dimBrokerFile = getFile(files, DIM_BROKER_CSV)
+        log.info "Loading data into DimBroker"
+        List<DimBroker> dimBrokers = parseDimBrokers(dimBrokerFile, earliestDate)
+        dimBrokers = dimBrokerRepository.saveAll(dimBrokers)
+
+        log.info "Parsing all FinWire txt files"
+
         def finWireFiles = getTxtFilesThatStartWithName(files, FINWIRE_RECORDS_CSV_INITIAL_NAME)
-//////        //Since we will be needing them further down the line, we parse all of them in one go and keep them in memory
+        //Since we will be needing them further down the line, we parse all of them in one go and keep them in memory
         def finWireRecords = finWireFiles.collect { file -> file.readLines() }.flatten() as List<String>
-//        List<DimCompany> dimCompanies = parseDimCompanies(finWireRecords, industries, statusTypes, earliestDate)
-//        log.info "Loading data into DimCompany"
-//        dimCompanies = dimCompanyRepository.saveAll(dimCompanies)
-//
-//        List<DimSecurity> dimSecurities = dimSecurityRepository.findAll()
+        List<DimCompany> dimCompanies = parseDimCompanies(finWireRecords, industries, statusTypes, earliestDate)
+        log.info "Loading data into DimCompany"
+        dimCompanies = dimCompanyRepository.saveAll(dimCompanies)
+
         List<DimSecurity> dimSecurities = parseDimSecurity(finWireRecords, dimCompanies, statusTypes)
         log.info "Loading data into DimSecurity"
         dimSecurities = dimSecurityRepository.saveAll(dimSecurities)
-//
-//        List<Financial> financials = financialRepository.findAll()
-//        List<Financial> financials = parseFinancials(finWireRecords, dimCompanies)
-//        log.info "Loading data into Financial"
-//        financials = financialRepository.saveAll(financials)
+
+        List<Financial> financials = parseFinancials(finWireRecords, dimCompanies)
+        log.info "Loading data into Financial"
+        financials = financialRepository.saveAll(financials)
 
         //We need prospect file records before DimCustomer, but the data has to be saved after data has been saved for DimCustomer
         def prospectFile = getFile(files, PROSPECT_CSV)
         List<String[]> prospectFileRecords = getProspectFileRecords(prospectFile)
 
-//        List<DimCustomer> dimCustomers = dimCustomerRepository.findAll()
-//        def customerXmlFile = getFile(files, CUSTOMER_XML)
-//        def customerXmlData = parseCustomerXml(customerXmlFile)
-//        List<DimCustomer> dimCustomers = parseDimCustomer(customerXmlData, taxRates, prospectFileRecords)
-//        log.info "Loading data into DimCustomer"
-//        dimCustomers = dimCustomerRepository.saveAll(dimCustomers)
-//
-//
-//
-//        Map<Integer, List<DimBroker>> dimBrokersCache = dimBrokers.groupBy { it.brokerId }
-//        Map<Integer, List<DimCustomer>> dimCustomersCache = dimCustomers.groupBy { it.customerId }
-//
-        List<DimAccount> dimAccounts = dimAccountRepository.findAll()
-//        List<DimAccount> dimAccounts = buildDimAccount(customerXmlData, dimCustomers, dimBrokers, dimBrokersCache, dimCustomersCache)
-//        log.info "Loading data into DimAccount"
-//        dimAccounts = dimAccountRepository.saveAll(dimAccounts)
-//
-//
+
+        def customerXmlFile = getFile(files, CUSTOMER_XML)
+        def customerXmlData = parseCustomerXml(customerXmlFile)
+        List<DimCustomer> dimCustomers = parseDimCustomer(customerXmlData, taxRates, prospectFileRecords)
+        log.info "Loading data into DimCustomer"
+        dimCustomers = dimCustomerRepository.saveAll(dimCustomers)
+
+
+        Map<Integer, List<DimBroker>> dimBrokersCache = dimBrokers.groupBy { it.brokerId }
+        Map<Integer, List<DimCustomer>> dimCustomersCache = dimCustomers.groupBy { it.customerId }
+
+        List<DimAccount> dimAccounts = buildDimAccount(customerXmlData, dimCustomers, dimBrokers, dimBrokersCache, dimCustomersCache)
+        log.info "Loading data into DimAccount"
+        dimAccounts = dimAccountRepository.saveAll(dimAccounts)
+
+
          Map<String, List<DimSecurity>> dimSecurityCache = dimSecurities.groupBy { dimSecurity -> dimSecurity.symbol }
-        println dimSecurityCache.get("AAAAAAAAAAAADMO")
-        println "hsss"
-        Map<Integer, List<DimAccount>> dimAccountsCache = dimAccounts.groupBy { dimAccount -> dimAccount.accountId }
-          Map<LocalDate, Integer> dimDatesCache = dimDates.collectEntries { dimDate ->
+
+         Map<Integer, List<DimAccount>> dimAccountsCache = dimAccounts.groupBy { dimAccount -> dimAccount.accountId }
+         Map<LocalDate, Integer> dimDatesCache = dimDates.collectEntries { dimDate ->
               [(dimDate.date) : dimDate.id]
-          }
-////
-        Map<DimTimeKeys, Integer> dimTimeCache = dimTimes.collectEntries { dimTime ->
-            def key = new DimTimeKeys(hourId : dimTime.hourId, minuteId : dimTime.minuteId, secondId : dimTime.secondId)
-            [ (key) : dimTime.id]
-        }
-////
-////        List<DimTrade> dimTrades = dimTradeRepository.findAll()
+         }
+
+         Map<DimTimeKeys, Integer> dimTimeCache = dimTimes.collectEntries { dimTime ->
+             def key = new DimTimeKeys(hourId : dimTime.hourId, minuteId : dimTime.minuteId, secondId : dimTime.secondId)
+             [ (key) : dimTime.id]
+         }
+
          def tradeFile = getFile(files, TRADE_TXT)
-          def tradeHistoryFile = getFile(files, TRADE_HISTORY_TXT)
+         def tradeHistoryFile = getFile(files, TRADE_HISTORY_TXT)
          def tradeHistoryRecords = getTradeHistoryRecords(tradeHistoryFile)
-        List<DimTrade> dimTrades = parseTrade(tradeFile, dimDatesCache, dimTimeCache, statusTypes, tradeTypes, dimSecurityCache, dimAccountsCache, tradeHistoryRecords)
-        log.info "Loading data into DimTrades"
-        dimTradeRepository.saveAll(dimTrades)
-////
-//        def factCashBalanceFile = getFile(files, FACT_CASH_BALANCE_TXT)
-//        def factCashBalance = parseFactCashBalance(factCashBalanceFile, dimAccountsCache, dimDatesCache)
-//        log.info "Loading data into Fact Cash Balance"
-//        factCashBalanceRepository.saveAll(factCashBalance)
-//
-//        Map<Integer, DimTrade> dimTradeCache = dimTrades.collectEntries { dimTrade ->
-//            [(dimTrade.tradeId) : dimTrade]
-//        }
-//        def factHoldingsFile = getFile(files, FACT_HOLDINGS_TXT)
-//        List<FactHoldings> factHoldings = parseFactHoldings(factHoldingsFile, dimTradeCache)
-//        log.info "Loading data into FactHoldings"
-//        factHoldingsRepository.saveAll(factHoldings)
-//
-//        List<Prospect> prospects = parseProspect(prospectFileRecords, dimCustomers, dimDatesCache, batchDate)
-//        log.info "Loading data into Prospects"
-//        prospectRepository.saveAll(prospects)
+         List<DimTrade> dimTrades = parseTrade(tradeFile, dimDatesCache, dimTimeCache, statusTypes, tradeTypes, dimSecurityCache, dimAccountsCache, tradeHistoryRecords)
+         log.info "Loading data into DimTrades"
+         dimTradeRepository.saveAll(dimTrades)
 
-//        def factWatchesFile = getFile(files, FACT_WATCHES_TXT)
-//        List<FactWatches> factWatches = parseFactWatches(factWatchesFile, dimCustomersCache, dimSecurityCache, dimDatesCache)
-//        log.info "Loading data into FactWatches"
-//        factWatchesRepository.saveAll(factWatches)
+         def factCashBalanceFile = getFile(files, FACT_CASH_BALANCE_TXT)
+         def factCashBalance = parseFactCashBalance(factCashBalanceFile, dimAccountsCache, dimDatesCache)
+         log.info "Loading data into Fact Cash Balance"
+         factCashBalanceRepository.saveAll(factCashBalance)
 
-//        def factMarketHistoryFile = getFile(files, FACT_MARKET_HISTORY_TXT)
-//        List<FactMarketHistory> factMarketHistories = parseFactMarketHistory(factMarketHistoryFile, dimSecurityCache, dimDatesCache, financials, dimCompanies)
-//        log.info "Saving data into FactMarketHistory"
-//        factMarketHistoryRepository.saveAll(factMarketHistories)
+         Map<Integer, DimTrade> dimTradeCache = dimTrades.collectEntries { dimTrade ->
+             [(dimTrade.tradeId) : dimTrade]
+         }
+         def factHoldingsFile = getFile(files, FACT_HOLDINGS_TXT)
+         List<FactHoldings> factHoldings = parseFactHoldings(factHoldingsFile, dimTradeCache)
+         log.info "Loading data into FactHoldings"
+         factHoldingsRepository.saveAll(factHoldings)
+
+         List<Prospect> prospects = parseProspect(prospectFileRecords, dimCustomers, dimDatesCache, batchDate)
+         log.info "Loading data into Prospects"
+         prospectRepository.saveAll(prospects)
+
+         def factWatchesFile = getFile(files, FACT_WATCHES_TXT)
+         List<FactWatches> factWatches = parseFactWatches(factWatchesFile, dimCustomersCache, dimSecurityCache, dimDatesCache)
+         log.info "Loading data into FactWatches"
+         factWatchesRepository.saveAll(factWatches)
+
+         def factMarketHistoryFile = getFile(files, FACT_MARKET_HISTORY_TXT)
+         List<FactMarketHistory> factMarketHistories = parseFactMarketHistory(factMarketHistoryFile, dimSecurityCache, dimDatesCache, financials, dimCompanies)
+         log.info "Saving data into FactMarketHistory"
+         factMarketHistoryRepository.saveAll(factMarketHistories)
     }
 
 
@@ -443,94 +432,78 @@ class HistoricalLoad {
     {
         List<DimSecurity> dimSecurities = []
         records.findAll { record ->
-                    def recType = record.substring(15,18)
-                    return recType == "SEC"
-                }
-                .each{ record ->
-                    def pts = DateTimeUtil.parseFinWireDateAndTime(record.substring(0, 15)).toLocalDate()
-                    def symbol = record.substring(18, 33)
-                    def issueType = record.substring(33, 39)
-                    def status = Status.from(statusTypes.find { it.id == record.substring(39, 43)}.name)
-                    def name = record.substring(43, 113)
-                    def exchangeId = record.substring(113, 119)
-                    def sharesOutstanding = record.substring(119, 132) as Integer
-                    def firstDate = DateTimeUtil.parseFinWireDate(record.substring(132, 140))
-                    def firstTradeOnExchange = DateTimeUtil.parseFinWireDate(record.substring(140, 148))
-                    def dividend = record.substring(148, 160) as Double
-                    def coNameOrCik = record.substring(160, record.size())
-                    def security = "security"
-                    def secEffectiveDate = pts
-                    def endDate = LocalDate.of(9999, Month.DECEMBER, 31)
-                    def batchId = BatchId.HISTORICAL_LOAD
-                    def skCompanyIds
-                    if(coNameOrCik.size() == 10) {
-                        skCompanyIds = dimCompanies.findAll { company ->
-                            company.companyId == (coNameOrCik as Integer)
-                        }.id
+            def recType = record.substring(15,18)
+            return recType == "SEC"
+        }
+        .collect{ record ->
+            def pts = DateTimeUtil.parseFinWireDateAndTime(record.substring(0, 15)).toLocalDate()
+            def symbol = record.substring(18, 33)
+            def issueType = record.substring(33, 39)
+            def status = Status.from(statusTypes.find { it.id == record.substring(39, 43)}.name)
+            def name = record.substring(43, 113)
+            def exchangeId = record.substring(113, 119)
+            def sharesOutstanding = record.substring(119, 132) as Integer
+            def firstDate = DateTimeUtil.parseFinWireDate(record.substring(132, 140))
+            def firstTradeOnExchange = DateTimeUtil.parseFinWireDate(record.substring(140, 148))
+            def dividend = record.substring(148, 160) as Double
+            def coNameOrCik = record.substring(160, record.size())
+            def isCurrent = true
+            def security = "security"
+            def secEffectiveDate = pts
+            def endDate = LocalDate.of(9999, Month.DECEMBER, 31)
+            def batchId = BatchId.HISTORICAL_LOAD
+            def skCompanyId
+            if(coNameOrCik.size() == 10) {
 
-                    }
-                    else {
-                        skCompanyIds = dimCompanies.findAll { company ->
-                            company.name == coNameOrCik
-                        }.id
-                    }
-                    skCompanyIds.each { skCompId ->
-                        def comp = dimCompanies.find { it.id == skCompId }
-                        def compEffectivDate = comp.effectiveDate
-                        def compEndDate = comp.endDate
-                        def isCompCurrent = comp.isCurrent
-                        def oldSecurityItem = dimSecurities.find { it.isCurrent &&  it.symbol == symbol }
-                        if(oldSecurityItem) {
-                            oldSecurityItem.isCurrent = false
-                            oldSecurityItem.endDate = secEffectiveDate
-                        }
+                skCompanyId = dimCompanies.find { company ->
+                    def effectiveCompDate = company.effectiveDate
+                    def endCompDate = company.endDate
+                    company.companyId == (coNameOrCik as Integer) && (
+                            (secEffectiveDate.isAfter(effectiveCompDate) || effectiveCompDate == secEffectiveDate)  && (secEffectiveDate.isBefore(endCompDate))
+                    )
+                }.id
+            }
+            else {
+                skCompanyId = dimCompanies.find { company ->
+                    def effectiveCompDate = company.effectiveDate
+                    def endCompDate = company.endDate
+                    company.name == coNameOrCik && (
+                            (secEffectiveDate.isAfter(effectiveCompDate) || effectiveCompDate == secEffectiveDate)  && (secEffectiveDate.isBefore(endCompDate))
+                    )
+                }.id
+            }
 
-                        if(!isCompCurrent) {
-                            def dimSecurity = new DimSecurity(
-                                    symbol : symbol,
-                                    issue : issueType,
-                                    status : status,
-                                    name : name,
-                                    exchangeId : exchangeId,
-                                    security : security,
-                                    skCompanyId : skCompId,
-                                    sharesOutstanding : sharesOutstanding,
-                                    firstDate : firstDate,
-                                    firstTradeOnExchange : firstTradeOnExchange,
-                                    dividend : dividend,
-                                    isCurrent : isCompCurrent,
-                                    effectiveDate : compEffectivDate,
-                                    endDate : compEndDate,
-                                    batchId : batchId
-                            )
-                            dimSecurities << dimSecurity
-                        }
-                        else {
-                            if((secEffectiveDate.isAfter(compEffectivDate) || compEffectivDate == secEffectiveDate)  && (secEffectiveDate.isBefore(compEndDate))) {
-                                def dimSecurity = new DimSecurity(
-                                        symbol : symbol,
-                                        issue : issueType,
-                                        status : status,
-                                        name : name,
-                                        exchangeId : exchangeId,
-                                        security : security,
-                                        skCompanyId : skCompId,
-                                        sharesOutstanding : sharesOutstanding,
-                                        firstDate : firstDate,
-                                        firstTradeOnExchange : firstTradeOnExchange,
-                                        dividend : dividend,
-                                        isCurrent : true,
-                                        effectiveDate : secEffectiveDate,
-                                        endDate : endDate,
-                                        batchId : batchId
-                                )
-                                dimSecurities << dimSecurity
-                            }
-                        }
+            def oldSecurityItem = dimSecurities.find { it.isCurrent &&  it.symbol == symbol }
+            if(oldSecurityItem) {
+                oldSecurityItem.isCurrent = false
+                oldSecurityItem.endDate = secEffectiveDate
+            }
 
-                    }
-             }
-        dimSecurities
+            def company = dimCompanies.find { it.id == skCompanyId }
+            def companyId = company.companyId
+            skCompanyId = dimCompanies.find { it.companyId == companyId && it.isCurrent }.id
+
+
+            def dimSecurity = new DimSecurity(
+                    symbol : symbol,
+                    issue : issueType,
+                    status : status,
+                    name : name,
+                    exchangeId : exchangeId,
+                    security : security,
+                    skCompanyId : skCompanyId,
+                    sharesOutstanding : sharesOutstanding,
+                    firstDate : firstDate,
+                    firstTradeOnExchange : firstTradeOnExchange,
+                    dividend : dividend,
+                    isCurrent : isCurrent,
+                    effectiveDate : secEffectiveDate,
+                    endDate : endDate,
+                    batchId : batchId
+            )
+            dimSecurities << dimSecurity
+            dimSecurity
+        }
     }
 
     private static List<Financial> parseFinancials(
@@ -740,7 +713,7 @@ class HistoricalLoad {
                         taxId : taxId,
                         status : status,
                         firstName : firstName,
-                        lastName : hasText(lastName) ? lastName : "", // -> TODO : This is a hack
+                        lastName : hasText(lastName) ? lastName : "",
                         middleInitial : middleName,
                         gender : gender,
                         tier : tier,
@@ -778,10 +751,6 @@ class HistoricalLoad {
                 expiredCustomer.endDate = effectiveDate
 
 
-                if(customerId == 31) {
-                    println "Printing original tax id " + taxId
-                    println "INACT UPDCUST " + expiredCustomer
-                }
 
                 dimCustomer = new DimCustomer(
                         status : Status.INACTIVE,
@@ -825,10 +794,6 @@ class HistoricalLoad {
                 def expiredCustomer = getLastCustomer(dimCustomers, customerId)
                 expiredCustomer.isCurrent = false
                 expiredCustomer.endDate = effectiveDate
-                if(customerId == 31) {
-                    println "Printing original tax id " + taxId
-                    println "ACTION UPDCUST " + expiredCustomer
-                }
 
 
                 dimCustomer = new DimCustomer(
@@ -920,7 +885,7 @@ class HistoricalLoad {
             def skBrokerId, skCustomerId
             def actionDate = actionTimestamp.toLocalDate()
             def dimAccount
-//            println "Actyon Tyope " + actionType + ", accountId " + accountId + " AND CUSTOMER ID IS " + customerId + ", time " + actionTimestamp.truncatedTo(ChronoUnit.SECONDS)
+
 
             if(actionType == "NEW" ) {
                 status = Status.ACTIVE
@@ -1067,7 +1032,6 @@ class HistoricalLoad {
             }
 
             else if(statusTypeId == "CMPT" || statusTypeId == "CNCL") {
-                //TODO : DO THIS
                 skCreateDateId = dimDatesCache.get(tradeDate)
                 skCreateTimeId = dimTimeCache.get(new DimTimeKeys(hourId : tradeTime.hour, minuteId : tradeTime.minute, secondId : tradeTime.second))
 
@@ -1077,8 +1041,7 @@ class HistoricalLoad {
             def status = statusTypes.find { it.id == statusTypeId }
             def type = tradeTypes.find { it.id == tradeTypeId }
 
-            println securitySymbol
-            println tradeDate
+
             def security = dimSecurityCache.get(securitySymbol).find { security ->
                 def secEffectiveDate = security.effectiveDate
                 def secEndDate = security.endDate
@@ -1365,14 +1328,13 @@ class HistoricalLoad {
 
             def highestPriceAndDate = priceAndDate[priceAndDate.size() -1]
             def highestPrice = highestPriceAndDate[3] as Double
-//            println "highestPrice for security symbol " + securitySymbol + "is " + highestPrice
+
 
             def dateOfHighestPrice = DateTimeUtil.parse(highestPriceAndDate[0])
             def skOfDateOfHighestPriceId = dimDatesCache.get(dateOfHighestPrice)
 
             def lowestPriceAndDate = priceAndDate[0]
             def lowestPrice = lowestPriceAndDate[3] as Double
-//            println "lowestPrice for security symbol " + securitySymbol + "is " + lowestPrice
 
             def dateOfLowestPrice = DateTimeUtil.parse(lowestPriceAndDate[0])
 
@@ -1419,25 +1381,6 @@ class HistoricalLoad {
         }
         factMarketHistories
     }
-
-    private void updateAccountIfCustomerInactive(
-            List<DimCustomer> dimCustomers,
-            List<DimAccount> dimAccounts
-    )
-    {
-        dimCustomers.each { dimCustomer ->
-            def compStatus =  dimCustomer.status
-            if(compStatus == Status.INACTIVE) {
-                def companyAccounts = dimAccounts.findAll { it.skCustomerId == dimCustomer.id }
-                companyAccounts.each { companyAcc ->
-                    companyAcc.status = Status.INACTIVE
-                    dimAccountRepository.save(companyAcc)
-                }
-            }
-        }
-    }
-
-
 
     private static List<String[]> getProspectFileRecords(File file) {
         FileParser.parse(file.path, COMMA_DELIM)
